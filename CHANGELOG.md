@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/DarkoKlisuric/godebugbar/compare/v0.3.0...v0.3.1) (2026-11-14)
+
+
+### Code Refactoring
+
+* encapsulate internal implementation under internal packages ([721a5b0](https://github.com/DarkoKlisuric/godebugbar/commit/721a5b0a6f3ff5a7740e3eed68e7355faa986929))
+* encapsulate internal implementation under internal packages ([94b53f1](https://github.com/DarkoKlisuric/godebugbar/commit/94b53f14cf85d4b8d6576253a0c2a52128c8b614))
+
 ## [0.3.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.2.0...v0.3.0) (2026-11-14)
 
 
