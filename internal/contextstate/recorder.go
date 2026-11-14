@@ -1,4 +1,4 @@
-package godebugbar
+package contextstate
 
 import (
 	"context"
@@ -18,30 +18,17 @@ type QueryEntry struct {
 	StartedAt    time.Time     `json:"started_at"`
 }
 
-type SpanEntry struct {
-	Label    string        `json:"label"`
-	Category string        `json:"category"`
-	Duration time.Duration `json:"duration"`
-	Offset   time.Duration `json:"offset"`
-}
-
 type Recorder struct {
-	mu        sync.RWMutex
-	startedAt time.Time
-	route     string
-	queries   []QueryEntry
-	spans     []SpanEntry
-	errors    []string
-	values    map[string]any
+	mu      sync.RWMutex
+	route   string
+	queries []QueryEntry
+	errors  []string
 }
 
 func NewRecorder() *Recorder {
 	return &Recorder{
-		startedAt: time.Now().UTC(),
-		queries:   make([]QueryEntry, 0),
-		spans:     make([]SpanEntry, 0),
-		errors:    make([]string, 0),
-		values:    make(map[string]any),
+		queries: make([]QueryEntry, 0),
+		errors:  make([]string, 0),
 	}
 }
 
@@ -76,33 +63,6 @@ func (r *Recorder) Queries() []QueryEntry {
 	return copied
 }
 
-func (r *Recorder) StartSpan(label, category string) func() {
-	start := time.Now().UTC()
-	offset := start.Sub(r.startedAt)
-
-	return func() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-
-		r.spans = append(r.spans, SpanEntry{
-			Label:    label,
-			Category: category,
-			Duration: time.Since(start),
-			Offset:   offset,
-		})
-	}
-}
-
-func (r *Recorder) Spans() []SpanEntry {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	copied := make([]SpanEntry, len(r.spans))
-	copy(copied, r.spans)
-
-	return copied
-}
-
 func (r *Recorder) SetRoute(route string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -132,20 +92,4 @@ func (r *Recorder) Errors() []string {
 	copy(copied, r.errors)
 
 	return copied
-}
-
-func (r *Recorder) SetValue(key string, value any) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.values[key] = value
-}
-
-func (r *Recorder) Value(key string) (any, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	value, ok := r.values[key]
-
-	return value, ok
 }

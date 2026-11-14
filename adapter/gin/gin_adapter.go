@@ -2,153 +2,159 @@ package ginadapter
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
+	"github.com/DarkoKlisuric/godebugbar/internal/contract"
+	"github.com/DarkoKlisuric/godebugbar/internal/engine"
 )
 
-const (
-	contentTypeHeader  = "Content-Type"
-	contentLenHeader   = "Content-Length"
-	exposeHeaderName   = "Access-Control-Expose-Headers"
-	htmlContentPrefix  = "text/html"
-	bodyCloseTag       = "</body>"
-	unmatchedRoutePath = "unmatched"
-)
-
-type GinAdapter struct {
-	profiler *godebugbar.Profiler
+type ginAdapter struct {
+	eng *engine.Engine
 }
 
-func NewGinAdapter(profiler *godebugbar.Profiler) *GinAdapter {
-	return &GinAdapter{profiler: profiler}
-}
-
-func Attach(engine *gin.Engine) godebugbar.Option {
-	return func(profiler *godebugbar.Profiler) {
-		if engine == nil {
+func Attach(router *gin.Engine) godebugbar.Option {
+	return func(p *godebugbar.Profiler) {
+		if router == nil || p == nil {
 			return
 		}
-
-		engine.ContextWithFallback = true
-		adapter := NewGinAdapter(profiler)
-		engine.Use(adapter.Middleware())
+		eng := engine.Lookup(p)
+		if eng == nil {
+			return
+		}
+		eng.AddInitializer(func(e *engine.Engine) {
+			a := &ginAdapter{eng: e}
+			a.mount(router)
+			router.Use(a.middleware())
+		})
 	}
 }
 
-func Middleware(profiler *godebugbar.Profiler) gin.HandlerFunc {
-	return NewGinAdapter(profiler).Middleware()
+func (a *ginAdapter) mount(router *gin.Engine) {
+	if !a.eng.Enabled() {
+		return
+	}
+	handler := gin.WrapH(a.eng.Handler())
+	prefix := a.eng.Prefix()
+	router.GET(prefix+"/assets/toolbar.js", handler)
+	router.GET(prefix+"/api/profiles", handler)
+	router.GET(prefix+"/api/profiles/latest", handler)
+	router.GET(prefix+"/api/profiles/:id", handler)
 }
 
-func (a *GinAdapter) Middleware() gin.HandlerFunc {
-	debugHandler := a.profiler.Handler()
-
-	return func(ginContext *gin.Context) {
-		if !a.profiler.Enabled() {
-			ginContext.Next()
-
+func (a *ginAdapter) middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !a.eng.Enabled() {
+			c.Next()
 			return
 		}
 
-		path := ginContext.Request.URL.Path
-		prefix := a.profiler.Prefix()
-		if path == prefix || strings.HasPrefix(path, prefix+"/") {
-			debugHandler.ServeHTTP(ginContext.Writer, ginContext.Request)
-			ginContext.Abort()
-
+		path := c.Request.URL.Path
+		prefix := a.eng.Prefix()
+		if path == prefix || strings.HasPrefix(path, prefix+"/") || a.eng.IsExcluded(path) {
+			c.Next()
 			return
 		}
 
-		if a.profiler.IsExcluded(path) {
-			ginContext.Next()
+		rec := contextstate.NewRecorder()
+		ctx := contextstate.WithRecorder(c.Request.Context(), rec)
+		c.Request = c.Request.WithContext(ctx)
 
-			return
+		gw := &ginResponseWriter{
+			ResponseWriter: c.Writer,
+		}
+		c.Writer = gw
+
+		profileID := a.eng.NewProfileID()
+		c.Header(engine.ProfileHeader, profileID)
+
+		start := time.Now()
+		c.Next()
+		duration := time.Since(start)
+
+		if route := c.FullPath(); route != "" {
+			rec.SetRoute(route)
 		}
 
-		profileID := a.profiler.NewProfileID()
-		startedAt := time.Now().UTC()
-		recorder := godebugbar.NewRecorder()
-		ctx := godebugbar.WithRecorder(ginContext.Request.Context(), recorder)
-		ginContext.Request = ginContext.Request.WithContext(ctx)
-
-		ginContext.Header(godebugbar.ProfileHeader, profileID)
-		ginContext.Writer.Header().Add(exposeHeaderName, godebugbar.ProfileHeader)
-
-		writer := &ginBodyWriter{
-			ResponseWriter: ginContext.Writer,
-		}
-		ginContext.Writer = writer
-
-		ginContext.Next()
-
-		route := recorder.Route()
-		if route == "" {
-			route = ginContext.FullPath()
-		}
-		if route == "" {
-			route = unmatchedRoutePath
-		}
-
-		for _, ginErr := range ginContext.Errors {
+		for _, ginErr := range c.Errors {
 			if ginErr != nil && ginErr.Err != nil {
-				recorder.AddError(ginErr.Err.Error())
+				rec.AddError(ginErr.Err.Error())
 			}
 		}
 
-		responseInfo := &godebugbar.ResponseInfo{
-			Status:   ginContext.Writer.Status(),
-			Size:     ginContext.Writer.Size(),
-			Duration: time.Since(startedAt),
-			Headers:  ginContext.Writer.Header().Clone(),
-			Route:    route,
-			Errors:   recorder.Errors(),
-		}
+		a.eng.RecordRequest(c.Request, profileID, start, duration, &contract.ResponseInfo{
+			Status:   gw.Status(),
+			Size:     gw.size,
+			Duration: duration,
+			Headers:  gw.Header().Clone(),
+			Route:    rec.Route(),
+			Errors:   rec.Errors(),
+		})
 
-		a.profiler.RecordRequest(ctx, profileID, startedAt, ginContext.Request, responseInfo)
-		writer.flushHTML(a.profiler.Snippet(profileID))
+		gw.flushWithSnippet(a.eng.Snippet(profileID))
 	}
 }
 
-type ginBodyWriter struct {
+type ginResponseWriter struct {
 	gin.ResponseWriter
-	buffered bool
-	body     bytes.Buffer
+	buf     bytes.Buffer
+	isHTML  bool
+	decided bool
+	size    int
 }
 
-func (w *ginBodyWriter) Write(data []byte) (int, error) {
-	if !w.buffered && strings.HasPrefix(strings.ToLower(w.Header().Get(contentTypeHeader)), htmlContentPrefix) {
-		w.buffered = true
+func (w *ginResponseWriter) Write(b []byte) (int, error) {
+	w.decide(b)
+	w.size += len(b)
+	if w.isHTML {
+		return w.buf.Write(b)
 	}
+	return w.ResponseWriter.Write(b)
+}
 
-	if w.buffered {
-		return w.body.Write(data)
+func (w *ginResponseWriter) WriteString(s string) (int, error) {
+	w.decide([]byte(s))
+	w.size += len(s)
+	if w.isHTML {
+		return w.buf.WriteString(s)
 	}
-
-	return w.ResponseWriter.Write(data)
+	return w.ResponseWriter.WriteString(s)
 }
 
-func (w *ginBodyWriter) WriteString(str string) (int, error) {
-	return w.Write([]byte(str))
-}
-
-func (w *ginBodyWriter) flushHTML(snippet string) {
-	if !w.buffered {
+func (w *ginResponseWriter) decide(sample []byte) {
+	if w.decided {
 		return
 	}
-
-	content := w.body.String()
-	if snippet != "" {
-		idx := strings.LastIndex(strings.ToLower(content), bodyCloseTag)
-		if idx >= 0 {
-			content = content[:idx] + snippet + content[idx:]
-		} else {
-			content += snippet
+	w.decided = true
+	ct := w.Header().Get("Content-Type")
+	if ct == "" && len(sample) > 0 {
+		ct = "text/plain"
+		if strings.Contains(strings.ToLower(string(sample)), "<html") || strings.Contains(strings.ToLower(string(sample)), "<body") {
+			ct = "text/html; charset=utf-8"
 		}
 	}
+	enc := w.Header().Get("Content-Encoding")
+	w.isHTML = strings.Contains(strings.ToLower(ct), "text/html") && enc == ""
+}
 
-	w.Header().Del(contentLenHeader)
-	_, _ = w.ResponseWriter.Write([]byte(content))
+func (w *ginResponseWriter) flushWithSnippet(snippet string) {
+	if !w.isHTML {
+		return
+	}
+	body := w.buf.String()
+	lower := strings.ToLower(body)
+	idx := strings.LastIndex(lower, "</body>")
+	var out string
+	if idx != -1 {
+		out = body[:idx] + snippet + body[idx:]
+	} else {
+		out = body + snippet
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+	_, _ = w.ResponseWriter.Write([]byte(out))
 }

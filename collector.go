@@ -1,50 +1,26 @@
 package godebugbar
 
-import (
-	"context"
-	"net/http"
-	"time"
+import "github.com/DarkoKlisuric/godebugbar/internal/contract"
+
+type (
+	Collector    = contract.Collector
+	Section      = contract.Section
+	ToolbarItem  = contract.ToolbarItem
+	ResponseInfo = contract.ResponseInfo
+	BadgeColor   = contract.BadgeColor
 )
 
-type BadgeColor string
-
 const (
-	ColorDefault BadgeColor = "default"
-	ColorGreen   BadgeColor = "green"
-	ColorYellow  BadgeColor = "yellow"
-	ColorRed     BadgeColor = "red"
+	ColorDefault = contract.ColorDefault
+	ColorGreen   = contract.ColorGreen
+	ColorYellow  = contract.ColorYellow
+	ColorRed     = contract.ColorRed
 )
 
 func StatusColor(status int) BadgeColor {
-	switch {
-	case status >= http.StatusInternalServerError:
-		return ColorRed
-	case status >= http.StatusBadRequest:
-		return ColorYellow
-	case status >= http.StatusOK && status < http.StatusMultipleChoices:
-		return ColorGreen
-	default:
-		return ColorDefault
-	}
+	return contract.StatusColor(status)
 }
 
-type ToolbarItem struct {
-	Label   string            `json:"label"`
-	Value   string            `json:"value"`
-	Color   BadgeColor        `json:"color"`
-	Tooltip map[string]string `json:"tooltip,omitempty"`
-}
-
-type ResponseInfo struct {
-	Status   int
-	Size     int
-	Duration time.Duration
-	Headers  http.Header
-	Route    string
-	Errors   []string
-}
-
-type Collector interface {
-	Name() string
-	Collect(ctx context.Context, request *http.Request, response *ResponseInfo) *Section
+func NewSection(item ToolbarItem, panel *Panel) *Section {
+	return contract.NewSection(item, panel)
 }

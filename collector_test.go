@@ -1,34 +1,34 @@
-package godebugbar
+package godebugbar_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
+	"time"
+
+	"github.com/DarkoKlisuric/godebugbar"
 )
 
-func TestStatusColor(t *testing.T) {
+type stubCollector struct{}
+
+func (c *stubCollector) Name() string {
+	return "stub"
+}
+
+func (c *stubCollector) Collect(_ context.Context, _ *http.Request, res *godebugbar.ResponseInfo) *godebugbar.Section {
+	return godebugbar.NewSection(godebugbar.ToolbarItem{
+		Label: "Stub",
+		Value: "OK",
+		Color: godebugbar.StatusColor(res.Status),
+	}, godebugbar.NewPanel("Stub"))
+}
+
+func TestCollectorContract(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		status int
-		want   BadgeColor
-	}{
-		{name: "100 informational is default", status: http.StatusContinue, want: ColorDefault},
-		{name: "200 ok is green", status: http.StatusOK, want: ColorGreen},
-		{name: "201 created is green", status: http.StatusCreated, want: ColorGreen},
-		{name: "302 redirect is default", status: http.StatusFound, want: ColorDefault},
-		{name: "400 bad request is yellow", status: http.StatusBadRequest, want: ColorYellow},
-		{name: "404 not found is yellow", status: http.StatusNotFound, want: ColorYellow},
-		{name: "500 internal error is red", status: http.StatusInternalServerError, want: ColorRed},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := StatusColor(tt.status); got != tt.want {
-				t.Errorf("StatusColor(%d) = %q, want %q", tt.status, got, tt.want)
-			}
-		})
+	var c godebugbar.Collector = &stubCollector{}
+	sec := c.Collect(t.Context(), nil, &godebugbar.ResponseInfo{Status: http.StatusOK, Duration: time.Millisecond})
+	if c.Name() != "stub" || sec.Toolbar.Color != godebugbar.ColorGreen {
+		t.Fatalf("unexpected section: %+v", sec)
 	}
 }

@@ -1,4 +1,4 @@
-package godebugbar
+package collector
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 )
 
 const requestCollectorName = "request"
@@ -20,7 +22,7 @@ func (c *RequestCollector) Name() string {
 	return requestCollectorName
 }
 
-func (c *RequestCollector) Collect(_ context.Context, request *http.Request, response *ResponseInfo) *Section {
+func (c *RequestCollector) Collect(_ context.Context, request *http.Request, response *contract.ResponseInfo) *contract.Section {
 	route := response.Route
 	if route == "" {
 		route = request.URL.Path
@@ -30,13 +32,13 @@ func (c *RequestCollector) Collect(_ context.Context, request *http.Request, res
 	durationText := fmt.Sprintf("%.2f ms", durationMs)
 	statusText := strconv.Itoa(response.Status)
 
-	panel := NewPanel("Request").
+	panel := contract.NewPanel("Request").
 		AddMetrics(
-			NewMetric("Status", fmt.Sprintf("%d %s", response.Status, http.StatusText(response.Status))),
-			NewMetric("Method", request.Method),
-			NewMetric("Route", route),
-			NewMetric("Duration", durationText),
-			NewMetric("Response Size", fmt.Sprintf("%d B", response.Size)),
+			contract.NewMetric("Status", fmt.Sprintf("%d %s", response.Status, http.StatusText(response.Status))),
+			contract.NewMetric("Method", request.Method),
+			contract.NewMetric("Route", route),
+			contract.NewMetric("Duration", durationText),
+			contract.NewMetric("Response Size", fmt.Sprintf("%d B", response.Size)),
 		).
 		AddKeyValue("Request Headers", flattenHeaders(request.Header)).
 		AddKeyValue("Response Headers", flattenHeaders(response.Headers))
@@ -59,11 +61,11 @@ func (c *RequestCollector) Collect(_ context.Context, request *http.Request, res
 		panel.AddTable("Errors", []string{"#", "Error"}, rows)
 	}
 
-	return NewSection(
-		ToolbarItem{
+	return contract.NewSection(
+		contract.ToolbarItem{
 			Label: fmt.Sprintf("%s %s", statusText, request.Method),
 			Value: fmt.Sprintf("%s (%s)", route, durationText),
-			Color: StatusColor(response.Status),
+			Color: contract.StatusColor(response.Status),
 			Tooltip: map[string]string{
 				"Path":     request.URL.Path,
 				"Route":    route,

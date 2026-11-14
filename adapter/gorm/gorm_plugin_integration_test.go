@@ -1,51 +1,90 @@
-//go:build integration
-
-package gormadapter
+package gormadapter_test
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	ginadapter "github.com/DarkoKlisuric/godebugbar/adapter/gin"
+	gormadapter "github.com/DarkoKlisuric/godebugbar/adapter/gorm"
 )
+
+type postgresAuditItem struct {
+	ID        uint   `gorm:"primaryKey"`
+	Title     string `gorm:"size:120;not null"`
+	CreatedAt time.Time
+}
 
 func TestGormPluginPostgresIntegration(t *testing.T) {
 	t.Parallel()
+	gin.SetMode(gin.TestMode)
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL is not set")
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: gormlogger.Discard,
-	})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("gorm.Open(postgres) error = %v", err)
+		t.Fatalf("failed to connect to postgres: %v", err)
 	}
 
+	tableName := fmt.Sprintf("godebugbar_items_%d", time.Now().UnixNano())
+	scopedDB := db.Table(tableName)
+
+	if err := scopedDB.AutoMigrate(&postgresAuditItem{}); err != nil {
+		t.Fatalf("failed to migrate test table: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = scopedDB.Migrator().DropTable(&postgresAuditItem{})
+	})
+
+	router := gin.New()
 	godebugbar.New(
-		Attach(db),
+		ginadapter.Attach(router),
+		gormadapter.Attach(db),
 	)
 
-	recorder := godebugbar.NewRecorder()
-	ctx := godebugbar.WithRecorder(t.Context(), recorder)
+	router.POST("/audit", func(c *gin.Context) {
+		reqDB := db.WithContext(c.Request.Context()).Table(tableName)
+		item := postgresAuditItem{Title: "postgres-check"}
+		if err := reqDB.Create(&item).Error; err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
 
-	var result int
-	if err := db.WithContext(ctx).Raw("SELECT 1").Scan(&result).Error; err != nil {
-		t.Fatalf("Raw(SELECT 1) error = %v", err)
+		var out []postgresAuditItem
+		if err := reqDB.Where("title = ?", "postgres-check").Find(&out).Error; err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusCreated)
+	})
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/audit", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	profileID := rec.Header().Get("X-Debugbar-ID")
+	if profileID == "" {
+		t.Fatalf("expected X-Debugbar-ID header")
 	}
 
-	if result != 1 {
-		t.Errorf("result = %d, want 1", result)
-	}
+	apiReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/"+profileID, nil)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
 
-	queries := recorder.Queries()
-	if len(queries) != 1 || queries[0].SQL != "SELECT 1" {
-		t.Errorf("recorded queries = %+v, want [SELECT 1]", queries)
+	body := apiRec.Body.String()
+	if !strings.Contains(body, "postgres-check") || !strings.Contains(body, "INSERT INTO") {
+		t.Fatalf("expected Postgres SQL queries in profile JSON, got %s", body)
 	}
 }
