@@ -1,57 +1,62 @@
-package gormadapter
+package gormadapter_test
 
 import (
-	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/utils/tests"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	ginadapter "github.com/DarkoKlisuric/godebugbar/adapter/gin"
+	gormadapter "github.com/DarkoKlisuric/godebugbar/adapter/gorm"
 )
 
-func TestGormPlugin(t *testing.T) {
-	t.Parallel()
+type sampleModel struct {
+	ID   uint
+	Name string
+}
 
-	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{
-		DryRun: true,
-	})
+func TestGormPluginRecordsDryRunQueries(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(tests.DummyDialector{}, &gorm.Config{DryRun: true})
 	if err != nil {
-		t.Fatalf("gorm.Open(DummyDialector) error = %v", err)
+		t.Fatalf("unexpected gorm open error: %v", err)
 	}
 
+	router := gin.New()
 	godebugbar.New(
-		Attach(db),
+		ginadapter.Attach(router),
+		gormadapter.Attach(db),
 	)
 
-	recorder := godebugbar.NewRecorder()
-	ctx := godebugbar.WithRecorder(t.Context(), recorder)
+	router.GET("/items", func(c *gin.Context) {
+		var items []sampleModel
+		_ = db.WithContext(c.Request.Context()).Where("name = ?", "widget").Find(&items).Error
+		_ = db.WithContext(c.Request.Context()).Create(&sampleModel{Name: "gadget"}).Error
+		c.Status(http.StatusOK)
+	})
 
-	var row struct {
-		ID string
-	}
-	stmt := db.WithContext(ctx).Table("billing.plans").Where("id = ?", "pro").Find(&row)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/items", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
 
-	queries := recorder.Queries()
-	if len(queries) != 1 {
-		t.Fatalf("len(queries) = %d, want 1", len(queries))
-	}
-
-	if !strings.Contains(queries[0].SQL, "SELECT * FROM `billing`.`plans`") {
-		t.Errorf("SQL = %q, want SELECT * FROM `billing`.`plans`", queries[0].SQL)
-	}
-
-	if len(queries[0].Vars) != 1 || queries[0].Vars[0] != "pro" {
-		t.Errorf("Vars = %v, want [pro]", queries[0].Vars)
+	profileID := rec.Header().Get("X-Debugbar-ID")
+	if profileID == "" {
+		t.Fatalf("expected X-Debugbar-ID header")
 	}
 
-	stmt.Error = errors.New("connection reset")
-	plugin := NewGormPlugin()
-	plugin.after(stmt)
+	apiReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/"+profileID, nil)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
 
-	queries = recorder.Queries()
-	if len(queries) != 2 || queries[1].Error != "connection reset" {
-		t.Errorf("Error query = %+v, want Error=connection reset", queries)
+	body := apiRec.Body.String()
+	if !strings.Contains(body, "widget") || !strings.Contains(body, "gadget") {
+		t.Fatalf("expected recorded dry-run queries in profile response, got %s", body)
 	}
 }

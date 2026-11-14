@@ -1,147 +1,119 @@
 package gormadapter
 
 import (
-	"errors"
 	"fmt"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/utils"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 )
 
-const (
-	pluginName      = "godebugbar:gorm"
-	beforeCallback  = "godebugbar:before"
-	afterCallback   = "godebugbar:after"
-	startTimeKey    = "godebugbar:start_time"
-	maxCallerFrames = 15
-)
+const startTimeInstanceKey = "godebugbar:start_time"
 
-type GormPlugin struct{}
-
-func NewGormPlugin() *GormPlugin {
-	return &GormPlugin{}
-}
+type gormPlugin struct{}
 
 func Attach(db *gorm.DB) godebugbar.Option {
 	return func(_ *godebugbar.Profiler) {
 		if db == nil {
 			return
 		}
-
-		_ = db.Use(NewGormPlugin())
+		_ = db.Use(&gormPlugin{})
 	}
 }
 
-func (p *GormPlugin) Name() string {
-	return pluginName
+func (p *gormPlugin) Name() string {
+	return "godebugbar"
 }
 
-func (p *GormPlugin) Initialize(db *gorm.DB) error {
-	if db == nil {
-		return nil
+func (p *gormPlugin) Initialize(db *gorm.DB) error {
+	cb := db.Callback()
+
+	if err := cb.Create().Before("*").Register("godebugbar:before_create", p.before); err != nil {
+		return err
 	}
-
-	callbacks := db.Callback()
-	steps := []struct {
-		before func(string, func(*gorm.DB)) error
-		after  func(string, func(*gorm.DB)) error
-	}{
-		{before: callbacks.Create().Before("*").Register, after: callbacks.Create().After("*").Register},
-		{before: callbacks.Query().Before("*").Register, after: callbacks.Query().After("*").Register},
-		{before: callbacks.Update().Before("*").Register, after: callbacks.Update().After("*").Register},
-		{before: callbacks.Delete().Before("*").Register, after: callbacks.Delete().After("*").Register},
-		{before: callbacks.Row().Before("*").Register, after: callbacks.Row().After("*").Register},
-		{before: callbacks.Raw().Before("*").Register, after: callbacks.Raw().After("*").Register},
+	if err := cb.Create().After("*").Register("godebugbar:after_create", p.after); err != nil {
+		return err
 	}
-
-	for _, step := range steps {
-		if err := step.before(beforeCallback, p.before); err != nil {
-			return err
-		}
-
-		if err := step.after(afterCallback, p.after); err != nil {
-			return err
-		}
+	if err := cb.Query().Before("*").Register("godebugbar:before_query", p.before); err != nil {
+		return err
 	}
-
-	return nil
+	if err := cb.Query().After("*").Register("godebugbar:after_query", p.after); err != nil {
+		return err
+	}
+	if err := cb.Update().Before("*").Register("godebugbar:before_update", p.before); err != nil {
+		return err
+	}
+	if err := cb.Update().After("*").Register("godebugbar:after_update", p.after); err != nil {
+		return err
+	}
+	if err := cb.Delete().Before("*").Register("godebugbar:before_delete", p.before); err != nil {
+		return err
+	}
+	if err := cb.Delete().After("*").Register("godebugbar:after_delete", p.after); err != nil {
+		return err
+	}
+	if err := cb.Row().Before("*").Register("godebugbar:before_row", p.before); err != nil {
+		return err
+	}
+	if err := cb.Row().After("*").Register("godebugbar:after_row", p.after); err != nil {
+		return err
+	}
+	if err := cb.Raw().Before("*").Register("godebugbar:before_raw", p.before); err != nil {
+		return err
+	}
+	return cb.Raw().After("*").Register("godebugbar:after_raw", p.after)
 }
 
-func (p *GormPlugin) before(db *gorm.DB) {
-	if db == nil {
+func (p *gormPlugin) before(db *gorm.DB) {
+	if db == nil || db.Statement == nil {
 		return
 	}
-
-	db.InstanceSet(startTimeKey, time.Now().UTC())
+	db.InstanceSet(startTimeInstanceKey, time.Now())
 }
 
-func (p *GormPlugin) after(db *gorm.DB) {
+func (p *gormPlugin) after(db *gorm.DB) {
 	if db == nil || db.Statement == nil || db.Statement.Context == nil {
 		return
 	}
-
-	recorder := godebugbar.RecorderFromContext(db.Statement.Context)
-	if recorder == nil {
-		return
-	}
-
-	sqlText := strings.TrimSpace(db.Statement.SQL.String())
-	if sqlText == "" {
+	rec := contextstate.RecorderFromContext(db.Statement.Context)
+	if rec == nil {
 		return
 	}
 
 	var startedAt time.Time
 	var duration time.Duration
-	if val, ok := db.InstanceGet(startTimeKey); ok {
-		if start, valid := val.(time.Time); valid {
+	if v, ok := db.InstanceGet(startTimeInstanceKey); ok {
+		if start, ok := v.(time.Time); ok {
 			startedAt = start
 			duration = time.Since(start)
 		}
 	}
 
-	vars := make([]string, 0, len(db.Statement.Vars))
-	for _, variable := range db.Statement.Vars {
-		vars = append(vars, fmt.Sprint(variable))
+	sql := db.Explain(db.Statement.SQL.String(), db.Statement.Vars...)
+	if sql == "" {
+		sql = db.Statement.SQL.String()
 	}
 
-	var errText string
-	if db.Error != nil && !errors.Is(db.Error, gorm.ErrRecordNotFound) {
+	vars := make([]string, len(db.Statement.Vars))
+	for i, v := range db.Statement.Vars {
+		vars[i] = fmt.Sprint(v)
+	}
+
+	errText := ""
+	if db.Error != nil {
 		errText = db.Error.Error()
 	}
 
-	recorder.RecordQuery(godebugbar.QueryEntry{
-		SQL:          sqlText,
+	rec.RecordQuery(contextstate.QueryEntry{
+		SQL:          sql,
 		Vars:         vars,
 		RowsAffected: db.Statement.RowsAffected,
 		Duration:     duration,
-		Source:       callerSource(),
+		Source:       utils.FileWithLineNum(),
 		Error:        errText,
 		StartedAt:    startedAt,
 	})
-}
-
-func callerSource() string {
-	var pcs [maxCallerFrames]uintptr
-	count := runtime.Callers(3, pcs[:])
-	frames := runtime.CallersFrames(pcs[:count])
-
-	for {
-		frame, more := frames.Next()
-		if frame.File != "" &&
-			!strings.Contains(frame.File, "gorm.io/") &&
-			!strings.Contains(frame.File, "godebugbar/adapter/gorm") {
-			return fmt.Sprintf("%s:%d", filepath.Base(frame.File), frame.Line)
-		}
-
-		if !more {
-			break
-		}
-	}
-
-	return ""
 }

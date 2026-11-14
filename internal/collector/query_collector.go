@@ -1,4 +1,4 @@
-package godebugbar
+package collector
 
 import (
 	"context"
@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
+	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 )
 
 const queryCollectorName = "database"
@@ -21,9 +24,9 @@ func (c *QueryCollector) Name() string {
 	return queryCollectorName
 }
 
-func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *ResponseInfo) *Section {
-	var queries []QueryEntry
-	if recorder := RecorderFromContext(ctx); recorder != nil {
+func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *contract.ResponseInfo) *contract.Section {
+	var queries []contextstate.QueryEntry
+	if recorder := contextstate.RecorderFromContext(ctx); recorder != nil {
 		queries = recorder.Queries()
 	}
 
@@ -68,12 +71,12 @@ func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *Respon
 
 	totalMs := fmt.Sprintf("%.2f ms", float64(totalDuration.Microseconds())/1000.0)
 
-	panel := NewPanel("Database Queries").
+	panel := contract.NewPanel("Database Queries").
 		AddMetrics(
-			NewMetric("Total Queries", strconv.Itoa(len(queries))),
-			NewMetric("Total Duration", totalMs),
-			NewMetric("Duplicate Queries", strconv.Itoa(duplicateCount)),
-			NewMetric("Failed Queries", strconv.Itoa(failedCount)),
+			contract.NewMetric("Total Queries", strconv.Itoa(len(queries))),
+			contract.NewMetric("Total Duration", totalMs),
+			contract.NewMetric("Duplicate Queries", strconv.Itoa(duplicateCount)),
+			contract.NewMetric("Failed Queries", strconv.Itoa(failedCount)),
 		).
 		AddTable(
 			"Executed SQL Statements",
@@ -81,18 +84,18 @@ func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *Respon
 			rows,
 		)
 
-	color := ColorDefault
+	color := contract.ColorDefault
 	switch {
 	case failedCount > 0:
-		color = ColorRed
+		color = contract.ColorRed
 	case duplicateCount > 0:
-		color = ColorYellow
+		color = contract.ColorYellow
 	case len(queries) > 0:
-		color = ColorGreen
+		color = contract.ColorGreen
 	}
 
-	return NewSection(
-		ToolbarItem{
+	return contract.NewSection(
+		contract.ToolbarItem{
 			Label: "DB",
 			Value: fmt.Sprintf("%d (%s)", len(queries), totalMs),
 			Color: color,

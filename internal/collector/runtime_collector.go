@@ -1,4 +1,4 @@
-package godebugbar
+package collector
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+
+	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 )
 
 const (
@@ -23,7 +25,7 @@ func (c *RuntimeCollector) Name() string {
 	return runtimeCollectorName
 }
 
-func (c *RuntimeCollector) Collect(_ context.Context, _ *http.Request, _ *ResponseInfo) *Section {
+func (c *RuntimeCollector) Collect(_ context.Context, _ *http.Request, _ *contract.ResponseInfo) *contract.Section {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 
@@ -34,12 +36,12 @@ func (c *RuntimeCollector) Collect(_ context.Context, _ *http.Request, _ *Respon
 	heapText := fmt.Sprintf("%.2f MB", heapMB)
 	sysText := fmt.Sprintf("%.2f MB", sysMB)
 
-	panel := NewPanel("Go Runtime").
+	panel := contract.NewPanel("Go Runtime").
 		AddMetrics(
-			NewMetric("Heap Alloc", heapText),
-			NewMetric("System Memory", sysText),
-			NewMetric("Goroutines", strconv.Itoa(goroutines)),
-			NewMetric("GC Cycles", strconv.FormatUint(uint64(stats.NumGC), 10)),
+			contract.NewMetric("Heap Alloc", heapText),
+			contract.NewMetric("System Memory", sysText),
+			contract.NewMetric("Goroutines", strconv.Itoa(goroutines)),
+			contract.NewMetric("GC Cycles", strconv.FormatUint(uint64(stats.NumGC), 10)),
 		).
 		AddKeyValue("Environment", map[string]string{
 			"Go Version": runtime.Version(),
@@ -47,11 +49,11 @@ func (c *RuntimeCollector) Collect(_ context.Context, _ *http.Request, _ *Respon
 			"CPUs":       strconv.Itoa(runtime.NumCPU()),
 		})
 
-	return NewSection(
-		ToolbarItem{
+	return contract.NewSection(
+		contract.ToolbarItem{
 			Label: "Runtime",
 			Value: fmt.Sprintf("%s | %d gr", heapText, goroutines),
-			Color: ColorDefault,
+			Color: contract.ColorDefault,
 			Tooltip: map[string]string{
 				"Heap":       heapText,
 				"Goroutines": strconv.Itoa(goroutines),

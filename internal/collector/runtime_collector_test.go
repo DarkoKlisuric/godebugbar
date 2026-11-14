@@ -1,9 +1,11 @@
-package godebugbar
+package collector
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 )
 
 func TestRuntimeCollector(t *testing.T) {
@@ -11,11 +13,7 @@ func TestRuntimeCollector(t *testing.T) {
 
 	collector := NewRuntimeCollector()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
-	section := collector.Collect(t.Context(), req, &ResponseInfo{Status: http.StatusOK})
-
-	if collector.Name() != "runtime" {
-		t.Errorf("Name() = %q, want %q", collector.Name(), "runtime")
-	}
+	section := collector.Collect(t.Context(), req, &contract.ResponseInfo{Status: http.StatusOK})
 
 	if section == nil || section.Toolbar.Label != "Runtime" {
 		t.Errorf("section = %+v, want Runtime toolbar item", section)

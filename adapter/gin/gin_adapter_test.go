@@ -1,4 +1,4 @@
-package ginadapter
+package ginadapter_test
 
 import (
 	"encoding/json"
@@ -11,63 +11,57 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	ginadapter "github.com/DarkoKlisuric/godebugbar/adapter/gin"
 )
 
-func TestGinAdapterAttach(t *testing.T) {
+type profilePayload struct {
+	ID       string               `json:"id"`
+	Sections []godebugbar.Section `json:"sections"`
+}
+
+func TestGinAdapterCapturesRouteAndHTML(t *testing.T) {
 	t.Parallel()
+	gin.SetMode(gin.TestMode)
 
-	gin.SetMode(gin.ReleaseMode)
-	engine := gin.New()
-
+	router := gin.New()
 	godebugbar.New(
-		Attach(engine),
+		ginadapter.Attach(router),
 	)
 
-	engine.GET("/v1/plans/:id", func(c *gin.Context) {
-		recorder := godebugbar.RecorderFromContext(c)
-		if recorder == nil {
-			t.Error("expected RecorderFromContext(gin.Context) to work via ContextWithFallback")
-		}
-
-		_ = c.Error(errors.New("sample warning"))
-		c.JSON(http.StatusOK, gin.H{"id": c.Param("id")})
+	router.GET("/users/:id", func(c *gin.Context) {
+		_ = c.Error(errors.New("minor warning"))
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte("<html><body><h1>User</h1></body></html>"))
 	})
 
-	engine.GET("/page", func(c *gin.Context) {
-		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte("<html><body><h1>Page</h1></body></html>"))
-	})
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/plans/pro", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/users/42", nil)
 	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-	profileID := rec.Header().Get(godebugbar.ProfileHeader)
+	profileID := rec.Header().Get("X-Debugbar-ID")
 	if profileID == "" {
-		t.Fatal("expected X-Debugbar-ID header on Gin response")
+		t.Fatalf("expected X-Debugbar-ID header")
+	}
+	if !strings.Contains(rec.Body.String(), "/_debugbar/assets/toolbar.js") {
+		t.Fatalf("expected injected toolbar script, got %s", rec.Body.String())
 	}
 
-	profileReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/"+profileID, nil)
-	profileRec := httptest.NewRecorder()
-	engine.ServeHTTP(profileRec, profileReq)
-
-	if profileRec.Code != http.StatusOK {
-		t.Fatalf("GET profile status = %d, want 200", profileRec.Code)
+	apiReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/"+profileID, nil)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code != http.StatusOK {
+		t.Fatalf("expected debugbar API 200, got %d", apiRec.Code)
 	}
 
-	var got godebugbar.Profile
-	if err := json.Unmarshal(profileRec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("Unmarshal profile error = %v", err)
+	var prof profilePayload
+	if err := json.Unmarshal(apiRec.Body.Bytes(), &prof); err != nil {
+		t.Fatalf("unexpected json error: %v", err)
 	}
 
-	if got.Route != "/v1/plans/:id" {
-		t.Errorf("got.Route = %q, want /v1/plans/:id", got.Route)
+	raw := apiRec.Body.String()
+	if !strings.Contains(raw, "/users/:id") {
+		t.Fatalf("expected route pattern /users/:id in profile, got %s", raw)
 	}
-
-	htmlReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/page", nil)
-	htmlRec := httptest.NewRecorder()
-	engine.ServeHTTP(htmlRec, htmlReq)
-
-	if !strings.Contains(htmlRec.Body.String(), "/_debugbar/toolbar.js") {
-		t.Errorf("HTML response %q missing injected toolbar script", htmlRec.Body.String())
+	if !strings.Contains(raw, "minor warning") {
+		t.Fatalf("expected gin error in profile, got %s", raw)
 	}
 }

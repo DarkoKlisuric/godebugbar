@@ -4,40 +4,36 @@ type Option func(*Profiler)
 
 func WithEnabled(enabled bool) Option {
 	return func(p *Profiler) {
-		p.enabled = enabled
+		p.eng.SetEnabled(enabled)
 	}
 }
 
 func WithDefaultCollectors(enabled bool) Option {
 	return func(p *Profiler) {
-		p.defaultCollectors = enabled
+		p.eng.SetDefaultCollectors(enabled)
 	}
 }
 
 func WithStorageSize(size int) Option {
 	return func(p *Profiler) {
-		p.store = NewStore(size)
+		p.eng.SetStorageSize(size)
 	}
 }
 
 func WithPrefix(prefix string) Option {
 	return func(p *Profiler) {
-		if prefix != "" {
-			p.prefix = prefix
-		}
+		p.eng.SetPrefix(prefix)
 	}
 }
 
 func WithCollectors(collectors ...Collector) Option {
 	return func(p *Profiler) {
-		for _, collector := range collectors {
-			p.AddCollector(collector)
-		}
+		p.eng.AddCollectors(collectors...)
 	}
 }
 
 func WithExcludedPrefixes(prefixes ...string) Option {
 	return func(p *Profiler) {
-		p.excludedPrefixes = append(p.excludedPrefixes, prefixes...)
+		p.eng.AddExcludedPrefixes(prefixes...)
 	}
 }
