@@ -26,6 +26,8 @@ func TestGinAdapterCapturesRouteAndHTML(t *testing.T) {
 	router := gin.New()
 	godebugbar.New(
 		ginadapter.Attach(router),
+		godebugbar.WithHTMLInjection(),
+		godebugbar.WithCORS("*"),
 	)
 
 	router.GET("/users/:id", func(c *gin.Context) {
@@ -45,6 +47,13 @@ func TestGinAdapterCapturesRouteAndHTML(t *testing.T) {
 		t.Fatalf("expected injected toolbar script, got %s", rec.Body.String())
 	}
 
+	dashReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar", nil)
+	dashRec := httptest.NewRecorder()
+	router.ServeHTTP(dashRec, dashReq)
+	if dashRec.Code != http.StatusOK || !strings.Contains(dashRec.Body.String(), "GoDebugBar Profiler") {
+		t.Fatalf("expected dashboard HTML at /_debugbar, got %d", dashRec.Code)
+	}
+
 	apiReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/"+profileID, nil)
 	apiRec := httptest.NewRecorder()
 	router.ServeHTTP(apiRec, apiReq)
@@ -55,6 +64,9 @@ func TestGinAdapterCapturesRouteAndHTML(t *testing.T) {
 	var prof profilePayload
 	if err := json.Unmarshal(apiRec.Body.Bytes(), &prof); err != nil {
 		t.Fatalf("unexpected json error: %v", err)
+	}
+	if len(prof.Sections) != 1 || prof.Sections[0].Name != "request" {
+		t.Fatalf("expected only request section from ginadapter.Attach, got %+v", prof.Sections)
 	}
 
 	raw := apiRec.Body.String()

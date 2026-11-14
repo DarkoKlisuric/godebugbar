@@ -8,7 +8,9 @@ import (
 	"gorm.io/gorm/utils"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	"github.com/DarkoKlisuric/godebugbar/internal/collector"
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
+	"github.com/DarkoKlisuric/godebugbar/internal/engine"
 )
 
 const startTimeInstanceKey = "godebugbar:start_time"
@@ -16,9 +18,12 @@ const startTimeInstanceKey = "godebugbar:start_time"
 type gormPlugin struct{}
 
 func Attach(db *gorm.DB) godebugbar.Option {
-	return func(_ *godebugbar.Profiler) {
-		if db == nil {
+	return func(p *godebugbar.Profiler) {
+		if db == nil || p == nil {
 			return
+		}
+		if eng := engine.Lookup(p); eng != nil {
+			eng.AddCollectors(collector.NewQueryCollector())
 		}
 		_ = db.Use(&gormPlugin{})
 	}

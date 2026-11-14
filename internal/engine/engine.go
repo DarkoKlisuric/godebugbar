@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/DarkoKlisuric/godebugbar/internal/collector"
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 	"github.com/DarkoKlisuric/godebugbar/internal/ui"
@@ -24,22 +24,27 @@ const (
 var registry sync.Map
 
 type Engine struct {
-	enabled           bool
-	defaultCollectors bool
-	storageSize       int
-	prefix            string
-	store             *Store
-	collectors        []contract.Collector
-	excludedPrefixes  []string
-	initializers      []func(*Engine)
+	enabled          bool
+	dashboard        bool
+	htmlInjection    bool
+	storageSize      int
+	prefix           string
+	corsOrigins      []string
+	store            *Store
+	collectors       []contract.Collector
+	excludedPrefixes []string
+	excludedPaths    []string
+	excludedMethods  []string
+	initializers     []func(*Engine)
 }
 
 func New() *Engine {
 	return &Engine{
-		enabled:           true,
-		defaultCollectors: true,
-		storageSize:       defaultStoreCapacity,
-		prefix:            DefaultPrefix,
+		enabled:         true,
+		dashboard:       true,
+		storageSize:     defaultStoreCapacity,
+		prefix:          DefaultPrefix,
+		excludedMethods: []string{http.MethodOptions},
 	}
 }
 
@@ -60,8 +65,22 @@ func (e *Engine) SetEnabled(enabled bool) {
 	e.enabled = enabled
 }
 
-func (e *Engine) SetDefaultCollectors(enabled bool) {
-	e.defaultCollectors = enabled
+func (e *Engine) SetDashboard(enabled bool) {
+	e.dashboard = enabled
+}
+
+func (e *Engine) EnableHTMLInjection() {
+	e.htmlInjection = true
+}
+
+func (e *Engine) SetCORSOrigins(origins ...string) {
+	e.corsOrigins = nil
+	for _, o := range origins {
+		trimmed := strings.TrimSpace(o)
+		if trimmed != "" {
+			e.corsOrigins = append(e.corsOrigins, trimmed)
+		}
+	}
 }
 
 func (e *Engine) SetStorageSize(size int) {
@@ -83,7 +102,13 @@ func (e *Engine) SetPrefix(prefix string) {
 
 func (e *Engine) AddCollectors(collectors ...contract.Collector) {
 	for _, c := range collectors {
-		if c != nil {
+		if c == nil {
+			continue
+		}
+		exists := slices.ContainsFunc(e.collectors, func(existing contract.Collector) bool {
+			return existing.Name() == c.Name()
+		})
+		if !exists {
 			e.collectors = append(e.collectors, c)
 		}
 	}
@@ -97,6 +122,24 @@ func (e *Engine) AddExcludedPrefixes(prefixes ...string) {
 	}
 }
 
+func (e *Engine) AddExcludedPaths(paths ...string) {
+	for _, p := range paths {
+		if p != "" {
+			e.excludedPaths = append(e.excludedPaths, p)
+		}
+	}
+}
+
+func (e *Engine) SetExcludedMethods(methods ...string) {
+	e.excludedMethods = nil
+	for _, m := range methods {
+		upper := strings.ToUpper(strings.TrimSpace(m))
+		if upper != "" {
+			e.excludedMethods = append(e.excludedMethods, upper)
+		}
+	}
+}
+
 func (e *Engine) AddInitializer(fn func(*Engine)) {
 	if fn != nil {
 		e.initializers = append(e.initializers, fn)
@@ -105,14 +148,6 @@ func (e *Engine) AddInitializer(fn func(*Engine)) {
 
 func (e *Engine) Finalize() {
 	e.store = NewStore(e.storageSize)
-	if e.defaultCollectors {
-		defaults := []contract.Collector{
-			collector.NewRequestCollector(),
-			collector.NewQueryCollector(),
-			collector.NewRuntimeCollector(),
-		}
-		e.collectors = append(defaults, e.collectors...)
-	}
 	for _, fn := range e.initializers {
 		fn(e)
 	}
@@ -120,6 +155,14 @@ func (e *Engine) Finalize() {
 
 func (e *Engine) Enabled() bool {
 	return e.enabled
+}
+
+func (e *Engine) DashboardEnabled() bool {
+	return e.dashboard
+}
+
+func (e *Engine) HTMLInjectionEnabled() bool {
+	return e.htmlInjection
 }
 
 func (e *Engine) Prefix() string {
@@ -132,11 +175,22 @@ func (e *Engine) Store() *Store {
 
 func (e *Engine) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if e.dashboard {
+		mux.HandleFunc(e.prefix, e.handleDashboard)
+		mux.HandleFunc(e.prefix+"/", e.handleDashboard)
+	}
 	mux.HandleFunc(e.prefix+"/assets/toolbar.js", e.handleToolbarAsset)
 	mux.HandleFunc(e.prefix+"/api/profiles/latest", e.handleLatestProfile)
 	mux.HandleFunc(e.prefix+"/api/profiles/", e.handleGetProfile)
 	mux.HandleFunc(e.prefix+"/api/profiles", e.handleListProfiles)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.applyEndpointCORS(w.Header(), r.Header.Get("Origin"))
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func (e *Engine) Middleware(next http.Handler) http.Handler {
@@ -152,7 +206,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if e.IsExcluded(r.URL.Path) {
+		if e.ShouldSkip(r.Method, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -164,6 +218,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 
 		profileID := e.NewProfileID()
 		rr.Header().Set(ProfileHeader, profileID)
+		e.ExposeProfileHeader(rr.Header())
 
 		start := time.Now()
 		next.ServeHTTP(rr, req)
@@ -178,7 +233,11 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			Errors:   recorder.Errors(),
 		})
 
-		rr.FlushWithSnippet(e.Snippet(profileID))
+		snippet := ""
+		if e.htmlInjection {
+			snippet = e.Snippet(profileID)
+		}
+		rr.FlushWithSnippet(snippet)
 	})
 }
 
@@ -225,13 +284,65 @@ func (e *Engine) Snippet(profileID string) string {
 	)
 }
 
+func (e *Engine) ShouldSkip(method, path string) bool {
+	if slices.Contains(e.excludedMethods, strings.ToUpper(method)) {
+		return true
+	}
+	return e.IsExcluded(path)
+}
+
 func (e *Engine) IsExcluded(path string) bool {
+	if slices.Contains(e.excludedPaths, path) {
+		return true
+	}
 	for _, pfx := range e.excludedPrefixes {
 		if strings.HasPrefix(path, pfx) {
 			return true
 		}
 	}
 	return false
+}
+
+func (e *Engine) ExposeProfileHeader(h http.Header) {
+	if len(e.corsOrigins) == 0 {
+		return
+	}
+	existing := h.Get("Access-Control-Expose-Headers")
+	if existing == "" {
+		h.Set("Access-Control-Expose-Headers", ProfileHeader)
+		return
+	}
+	if !strings.Contains(existing, ProfileHeader) {
+		h.Set("Access-Control-Expose-Headers", existing+", "+ProfileHeader)
+	}
+}
+
+func (e *Engine) applyEndpointCORS(h http.Header, reqOrigin string) {
+	if len(e.corsOrigins) == 0 {
+		return
+	}
+	allowed := ""
+	if slices.Contains(e.corsOrigins, "*") {
+		allowed = "*"
+	} else if reqOrigin != "" && slices.Contains(e.corsOrigins, reqOrigin) {
+		allowed = reqOrigin
+	}
+	if allowed != "" {
+		h.Set("Access-Control-Allow-Origin", allowed)
+		h.Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Content-Type")
+	}
+}
+
+func (e *Engine) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != e.prefix && r.URL.Path != e.prefix+"/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(ui.DashboardHTML(e.prefix)))
 }
 
 func (e *Engine) handleToolbarAsset(w http.ResponseWriter, _ *http.Request) {
