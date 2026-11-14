@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.4.0...v1.0.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* profiling is disabled until WithEnabled(true) is passed. Option is now func(*engine.Engine), so only this module can create options. WithCORS ignores "*". WithExcludedMethods adds to OPTIONS instead of replacing it. GET /_debugbar/api/profiles returns summaries; fetch /api/profiles/{id} for the full profile. The request, runtime, log, HTTP client and timeline collectors are registered by default.
+
+### Features
+
+* add pgx and database/sql adapters ([11558cf](https://github.com/DarkoKlisuric/godebugbar/commit/11558cfbd101f6bb73b8df54dc36a4a67f432747))
+* harden the profiler and add a public recording API ([ade1410](https://github.com/DarkoKlisuric/godebugbar/commit/ade1410bea24a13f405d0bc189dbd8e66e2fbf17))
+* **ui:** rewrite the toolbar and profiler page ([8a3769b](https://github.com/DarkoKlisuric/godebugbar/commit/8a3769bcff25f359688edc54d17bac2bff0c9d1f))
+
 ## [0.4.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.3.1...v0.4.0) (2026-11-14)
 
 
