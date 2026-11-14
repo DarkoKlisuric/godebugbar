@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DarkoKlisuric/godebugbar/internal/collector"
 	"github.com/DarkoKlisuric/godebugbar/internal/engine"
 )
 
@@ -15,7 +16,16 @@ func TestEngineMiddlewareAndEndpoints(t *testing.T) {
 
 	eng := engine.New()
 	eng.SetStorageSize(10)
+	eng.EnableHTMLInjection()
+	eng.AddCollectors(
+		collector.NewRequestCollector(),
+		collector.NewQueryCollector(),
+		collector.NewRuntimeCollector(),
+		collector.NewRequestCollector(),
+	)
 	eng.AddExcludedPrefixes("/healthz")
+	eng.AddExcludedPaths("/exact-skip")
+	eng.SetCORSOrigins("*")
 	eng.Finalize()
 
 	owner := &struct{}{}
@@ -47,15 +57,42 @@ func TestEngineMiddlewareAndEndpoints(t *testing.T) {
 	if profileID == "" {
 		t.Fatalf("expected %s header on HTML response", engine.ProfileHeader)
 	}
+	if htmlRec.Header().Get("Access-Control-Expose-Headers") != engine.ProfileHeader {
+		t.Fatalf("expected Access-Control-Expose-Headers to contain %s", engine.ProfileHeader)
+	}
 	if !strings.Contains(htmlRec.Body.String(), "/_debugbar/assets/toolbar.js") {
 		t.Fatalf("expected toolbar script snippet in HTML response, got %s", htmlRec.Body.String())
+	}
+
+	dashReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar", nil)
+	dashRec := httptest.NewRecorder()
+	handler.ServeHTTP(dashRec, dashReq)
+	if dashRec.Code != http.StatusOK || !strings.Contains(dashRec.Body.String(), "GoDebugBar Profiler") {
+		t.Fatalf("expected dashboard HTML at /_debugbar, got %d", dashRec.Code)
+	}
+	if dashRec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("expected CORS header on /_debugbar endpoint")
 	}
 
 	excludedReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 	excludedRec := httptest.NewRecorder()
 	handler.ServeHTTP(excludedRec, excludedReq)
 	if excludedRec.Header().Get(engine.ProfileHeader) != "" {
+		t.Fatalf("expected excluded prefix not to be profiled")
+	}
+
+	exactReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/exact-skip", nil)
+	exactRec := httptest.NewRecorder()
+	handler.ServeHTTP(exactRec, exactReq)
+	if exactRec.Header().Get(engine.ProfileHeader) != "" {
 		t.Fatalf("expected excluded path not to be profiled")
+	}
+
+	optReq := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/home", nil)
+	optRec := httptest.NewRecorder()
+	handler.ServeHTTP(optRec, optReq)
+	if optRec.Header().Get(engine.ProfileHeader) != "" {
+		t.Fatalf("expected OPTIONS request not to be profiled by default")
 	}
 
 	assetReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/assets/toolbar.js", nil)
@@ -84,7 +121,7 @@ func TestEngineMiddlewareAndEndpoints(t *testing.T) {
 		t.Fatalf("unexpected json error: %v", err)
 	}
 	if prof.ID != profileID || len(prof.Sections) != 3 {
-		t.Fatalf("expected 3 default sections on profile, got %+v", prof)
+		t.Fatalf("expected 3 deduplicated sections on profile, got %+v", prof)
 	}
 
 	missingReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/unknown", nil)

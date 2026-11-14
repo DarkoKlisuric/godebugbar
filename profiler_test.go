@@ -12,7 +12,10 @@ import (
 func TestProfilerMiddleware(t *testing.T) {
 	t.Parallel()
 
-	p := godebugbar.New()
+	p := godebugbar.New(
+		godebugbar.WithRequestCollector(),
+		godebugbar.WithHTMLInjection(),
+	)
 	app := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(`<html><body><p>Page</p></body></html>`))

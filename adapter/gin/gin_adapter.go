@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/DarkoKlisuric/godebugbar"
+	"github.com/DarkoKlisuric/godebugbar/internal/collector"
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 	"github.com/DarkoKlisuric/godebugbar/internal/engine"
@@ -27,6 +28,7 @@ func Attach(router *gin.Engine) godebugbar.Option {
 		if eng == nil {
 			return
 		}
+		eng.AddCollectors(collector.NewRequestCollector())
 		eng.AddInitializer(func(e *engine.Engine) {
 			a := &ginAdapter{eng: e}
 			a.mount(router)
@@ -41,10 +43,17 @@ func (a *ginAdapter) mount(router *gin.Engine) {
 	}
 	handler := gin.WrapH(a.eng.Handler())
 	prefix := a.eng.Prefix()
+	if a.eng.DashboardEnabled() {
+		router.GET(prefix, handler)
+		router.GET(prefix+"/", handler)
+	}
 	router.GET(prefix+"/assets/toolbar.js", handler)
 	router.GET(prefix+"/api/profiles", handler)
 	router.GET(prefix+"/api/profiles/latest", handler)
 	router.GET(prefix+"/api/profiles/:id", handler)
+	router.OPTIONS(prefix+"/api/profiles", handler)
+	router.OPTIONS(prefix+"/api/profiles/latest", handler)
+	router.OPTIONS(prefix+"/api/profiles/:id", handler)
 }
 
 func (a *ginAdapter) middleware() gin.HandlerFunc {
@@ -56,7 +65,7 @@ func (a *ginAdapter) middleware() gin.HandlerFunc {
 
 		path := c.Request.URL.Path
 		prefix := a.eng.Prefix()
-		if path == prefix || strings.HasPrefix(path, prefix+"/") || a.eng.IsExcluded(path) {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") || a.eng.ShouldSkip(c.Request.Method, path) {
 			c.Next()
 			return
 		}
@@ -67,11 +76,13 @@ func (a *ginAdapter) middleware() gin.HandlerFunc {
 
 		gw := &ginResponseWriter{
 			ResponseWriter: c.Writer,
+			allowHTML:      a.eng.HTMLInjectionEnabled(),
 		}
 		c.Writer = gw
 
 		profileID := a.eng.NewProfileID()
 		c.Header(engine.ProfileHeader, profileID)
+		a.eng.ExposeProfileHeader(c.Writer.Header())
 
 		start := time.Now()
 		c.Next()
@@ -96,16 +107,21 @@ func (a *ginAdapter) middleware() gin.HandlerFunc {
 			Errors:   rec.Errors(),
 		})
 
-		gw.flushWithSnippet(a.eng.Snippet(profileID))
+		snippet := ""
+		if a.eng.HTMLInjectionEnabled() {
+			snippet = a.eng.Snippet(profileID)
+		}
+		gw.flushWithSnippet(snippet)
 	}
 }
 
 type ginResponseWriter struct {
 	gin.ResponseWriter
-	buf     bytes.Buffer
-	isHTML  bool
-	decided bool
-	size    int
+	buf       bytes.Buffer
+	allowHTML bool
+	isHTML    bool
+	decided   bool
+	size      int
 }
 
 func (w *ginResponseWriter) Write(b []byte) (int, error) {
@@ -131,6 +147,9 @@ func (w *ginResponseWriter) decide(sample []byte) {
 		return
 	}
 	w.decided = true
+	if !w.allowHTML {
+		return
+	}
 	ct := w.Header().Get("Content-Type")
 	if ct == "" && len(sample) > 0 {
 		ct = "text/plain"
