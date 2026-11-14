@@ -17,35 +17,58 @@ const (
 	ProfileHeader      = "X-Debugbar-ID"
 	defaultPrefix      = "/_debugbar"
 	profilesSuffix     = "/api/profiles"
+	toolbarJSSuffix    = "/toolbar.js"
 	toolbarScriptFmt   = `<script src="%s/toolbar.js" data-profile-id="%s" data-prefix="%s" defer></script>`
 	exposeHeaderName   = "Access-Control-Expose-Headers"
 	allowOriginHeader  = "Access-Control-Allow-Origin"
 	jsonContentTypeVal = "application/json; charset=utf-8"
+	jsContentTypeVal   = "application/javascript; charset=utf-8"
 )
 
 type Profiler struct {
-	mu               sync.RWMutex
-	enabled          bool
-	prefix           string
-	store            *Store
-	collectors       []Collector
-	excludedPrefixes []string
-	sequence         atomic.Uint64
+	mu                sync.RWMutex
+	enabled           bool
+	defaultCollectors bool
+	prefix            string
+	store             *Store
+	collectors        []Collector
+	excludedPrefixes  []string
+	sequence          atomic.Uint64
 }
 
-func NewProfiler(options ...Option) *Profiler {
+func New(options ...Option) *Profiler {
 	profiler := &Profiler{
-		enabled:    true,
-		prefix:     defaultPrefix,
-		store:      NewStore(defaultStoreCapacity),
-		collectors: make([]Collector, 0),
+		enabled:           true,
+		defaultCollectors: true,
+		prefix:            defaultPrefix,
+		store:             NewStore(defaultStoreCapacity),
+		collectors:        make([]Collector, 0),
 	}
 
 	for _, option := range options {
 		option(profiler)
 	}
 
+	if profiler.defaultCollectors {
+		defaults := []Collector{
+			NewRequestCollector(),
+			NewQueryCollector(),
+			NewRuntimeCollector(),
+		}
+
+		profiler.mu.Lock()
+		merged := make([]Collector, 0, len(defaults)+len(profiler.collectors))
+		merged = append(merged, defaults...)
+		merged = append(merged, profiler.collectors...)
+		profiler.collectors = merged
+		profiler.mu.Unlock()
+	}
+
 	return profiler
+}
+
+func NewProfiler(options ...Option) *Profiler {
+	return New(options...)
 }
 
 func (p *Profiler) Enabled() bool {
@@ -67,6 +90,14 @@ func (p *Profiler) AddCollector(collector Collector) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	for i, existing := range p.collectors {
+		if existing.Name() == collector.Name() {
+			p.collectors[i] = collector
+
+			return
+		}
+	}
 
 	p.collectors = append(p.collectors, collector)
 }
@@ -196,14 +227,22 @@ func (p *Profiler) Handler() http.Handler {
 		writer.Header().Set(allowOriginHeader, "*")
 
 		trimmed := strings.TrimPrefix(request.URL.Path, p.prefix)
+		if trimmed == toolbarJSSuffix {
+			writer.Header().Set(contentTypeHeader, jsContentTypeVal)
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write([]byte(toolbarScript))
+
+			return
+		}
+
 		if trimmed == profilesSuffix {
 			p.writeJSON(writer, http.StatusOK, p.store.List())
 
 			return
 		}
 
-		if after, ok := strings.CutPrefix(trimmed, profilesSuffix+"/"); ok {
-			id := after
+		if strings.HasPrefix(trimmed, profilesSuffix+"/") {
+			id := strings.TrimPrefix(trimmed, profilesSuffix+"/")
 			profile, ok := p.store.Get(id)
 			if !ok {
 				http.NotFound(writer, request)

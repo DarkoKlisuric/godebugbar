@@ -8,6 +8,12 @@ func WithEnabled(enabled bool) Option {
 	}
 }
 
+func WithDefaultCollectors(enabled bool) Option {
+	return func(p *Profiler) {
+		p.defaultCollectors = enabled
+	}
+}
+
 func WithStorageSize(size int) Option {
 	return func(p *Profiler) {
 		p.store = NewStore(size)
