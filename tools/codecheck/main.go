@@ -35,7 +35,8 @@ func run(root string, out io.Writer) (int, error) {
 		return 0, err
 	}
 
-	problems := append(fileProblems, readmes...)
+	problems := fileProblems
+	problems = append(problems, readmes...)
 	for _, problem := range problems {
 		_, _ = fmt.Fprintln(out, problem)
 	}
