@@ -12,47 +12,49 @@ import (
 func TestProfilerMiddleware(t *testing.T) {
 	t.Parallel()
 
-	p := godebugbar.New(
-		godebugbar.WithRequestCollector(),
-		godebugbar.WithHTMLInjection(),
-	)
-	app := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<html><body><p>Page</p></body></html>`))
-	})
-
-	handler := p.Middleware(app)
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/home", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Header().Get("X-Debugbar-ID") == "" {
-		t.Fatalf("expected X-Debugbar-ID header on response")
+	cases := []struct {
+		name       string
+		options    []godebugbar.Option
+		wantHeader bool
+		wantScript bool
+	}{
+		{name: "disabled by default", wantHeader: false, wantScript: false},
+		{name: "enabled", options: []godebugbar.Option{godebugbar.WithEnabled(true)}, wantHeader: true, wantScript: false},
+		{name: "enabled with injection", options: []godebugbar.Option{godebugbar.WithEnabled(true), godebugbar.WithHTMLInjection()}, wantHeader: true, wantScript: true},
 	}
-	if !strings.Contains(rec.Body.String(), "/_debugbar/assets/toolbar.js") {
-		t.Fatalf("expected toolbar script snippet in HTML response")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := godebugbar.New(tc.options...)
+			handler := p.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write([]byte(`<html><body><p>Page</p></body></html>`))
+			}))
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/home", nil))
+
+			if got := rec.Header().Get("X-Debugbar-ID") != ""; got != tc.wantHeader {
+				t.Fatalf("header present = %v, want %v", got, tc.wantHeader)
+			}
+			if got := strings.Contains(rec.Body.String(), "/_debugbar/assets/toolbar.js"); got != tc.wantScript {
+				t.Fatalf("script present = %v, want %v", got, tc.wantScript)
+			}
+			if p.Enabled() != tc.wantHeader {
+				t.Fatalf("Enabled() = %v", p.Enabled())
+			}
+		})
 	}
 }
 
-func TestProfilerDisabledPassthrough(t *testing.T) {
+func TestProfilerHandler(t *testing.T) {
 	t.Parallel()
 
-	p := godebugbar.New(godebugbar.WithEnabled(false))
-	app := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte("<html><body>hello</body></html>"))
-	})
-
-	handler := p.Middleware(app)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/home", nil)
+	p := godebugbar.New(godebugbar.WithEnabled(true), godebugbar.WithServeEndpoints(false))
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Header().Get("X-Debugbar-ID") != "" {
-		t.Fatalf("expected disabled profiler not to set header")
-	}
-	if strings.Contains(rec.Body.String(), "toolbar.js") {
-		t.Fatalf("expected disabled profiler not to inject script")
+	p.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles", nil))
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("expected an empty list from Handler, got %d %q", rec.Code, rec.Body.String())
 	}
 }

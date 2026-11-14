@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 )
 
@@ -22,7 +23,7 @@ func (c *RequestCollector) Name() string {
 	return requestCollectorName
 }
 
-func (c *RequestCollector) Collect(_ context.Context, request *http.Request, response *contract.ResponseInfo) *contract.Section {
+func (c *RequestCollector) Collect(ctx context.Context, request *http.Request, response *contract.ResponseInfo) *contract.Section {
 	route := response.Route
 	if route == "" {
 		route = request.URL.Path
@@ -52,6 +53,12 @@ func (c *RequestCollector) Collect(_ context.Context, request *http.Request, res
 		panel.AddKeyValue("Query Parameters", queryPairs)
 	}
 
+	if recorder := contextstate.RecorderFromContext(ctx); recorder != nil {
+		if body := recorder.RequestBody(); body != "" {
+			panel.AddCode("Request Body", body)
+		}
+	}
+
 	if len(response.Errors) > 0 {
 		rows := make([][]string, 0, len(response.Errors))
 		for i, message := range response.Errors {
@@ -61,11 +68,17 @@ func (c *RequestCollector) Collect(_ context.Context, request *http.Request, res
 		panel.AddTable("Errors", []string{"#", "Error"}, rows)
 	}
 
+	color := contract.StatusColor(response.Status)
+	if response.Panic != "" {
+		panel.AddCode("Panic: "+response.Panic, response.PanicStack)
+		color = contract.ColorRed
+	}
+
 	return contract.NewSection(
 		contract.ToolbarItem{
 			Label: fmt.Sprintf("%s %s", statusText, request.Method),
 			Value: fmt.Sprintf("%s (%s)", route, durationText),
-			Color: contract.StatusColor(response.Status),
+			Color: color,
 			Tooltip: map[string]string{
 				"Path":     request.URL.Path,
 				"Route":    route,

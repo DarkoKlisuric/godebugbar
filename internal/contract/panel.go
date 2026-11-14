@@ -9,6 +9,7 @@ const (
 	WidgetKindKeyValue WidgetKind = "key_value"
 	WidgetKindTable    WidgetKind = "table"
 	WidgetKindCode     WidgetKind = "code"
+	WidgetKindTimeline WidgetKind = "timeline"
 )
 
 type Metric struct {
@@ -21,13 +22,15 @@ func NewMetric(label, value string) Metric {
 }
 
 type Widget struct {
-	Kind    WidgetKind        `json:"kind"`
-	Title   string            `json:"title,omitempty"`
-	Metrics []Metric          `json:"metrics,omitempty"`
-	Pairs   map[string]string `json:"pairs,omitempty"`
-	Columns []string          `json:"columns,omitempty"`
-	Rows    [][]string        `json:"rows,omitempty"`
-	Code    string            `json:"code,omitempty"`
+	Kind      WidgetKind        `json:"kind"`
+	Title     string            `json:"title,omitempty"`
+	Metrics   []Metric          `json:"metrics,omitempty"`
+	Pairs     map[string]string `json:"pairs,omitempty"`
+	Columns   []string          `json:"columns,omitempty"`
+	Rows      [][]string        `json:"rows,omitempty"`
+	RowColors []BadgeColor      `json:"row_colors,omitempty"`
+	Code      string            `json:"code,omitempty"`
+	Events    []TimelineEvent   `json:"events,omitempty"`
 }
 
 type Panel struct {
@@ -80,6 +83,28 @@ func (p *Panel) AddCode(title, code string) *Panel {
 		Kind:  WidgetKindCode,
 		Title: title,
 		Code:  code,
+	})
+
+	return p
+}
+
+func (p *Panel) AddColoredTable(title string, columns []string, rows [][]string, colors []BadgeColor) *Panel {
+	p.Widgets = append(p.Widgets, Widget{
+		Kind:      WidgetKindTable,
+		Title:     title,
+		Columns:   columns,
+		Rows:      rows,
+		RowColors: colors,
+	})
+
+	return p
+}
+
+func (p *Panel) AddTimeline(title string, events []TimelineEvent) *Panel {
+	p.Widgets = append(p.Widgets, Widget{
+		Kind:   WidgetKindTimeline,
+		Title:  title,
+		Events: events,
 	})
 
 	return p

@@ -2,16 +2,18 @@ This is the code base of `godebugbar`, a web debug toolbar and request profiler 
 
 `godebugbar` follows Go idiomatic encapsulation with a minimal public API at the root, internal implementation packages under `internal/`, and loosely coupled adapter packages under `adapter/`:
 
-- **Public API** (`.`) - `Profiler` (`New`, `Middleware`), `Option` functions (`WithEnabled`, `WithDefaultCollectors`, `WithStorageSize`, `WithPrefix`, `WithCollectors`, `WithExcludedPrefixes`), and custom `Collector` / `Section` / `Panel` contracts
+- **Public API** (`.`) - `Profiler` (`New`, `Middleware`, `Handler`), `Option` functions (`WithEnabled`, `WithAuthorizer`, `WithCORS`, `WithRedacted*`, `WithCollectors`, ...), the per-request `Request` API (`FromContext`, `AddQuery`, `AddError`, `Log`, `StartSpan`), `SlogHandler`, `Transport`, and the `Collector` / `Section` / `Panel` contracts
 - **Internal Packages** (`internal/`):
-  - `internal/contract/` - Collector, Section, ToolbarItem, ResponseInfo, Panel, and Widget contracts
-  - `internal/contextstate/` - Per-request `Recorder` and `QueryEntry` stored in `context.Context`
-  - `internal/collector/` - Built-in collectors (`RequestCollector`, `QueryCollector`, `RuntimeCollector`)
-  - `internal/engine/` - Profiling `Engine`, ring-buffer `Store`, `Profile`, `ResponseRecorder`, and debugbar HTTP endpoints
-  - `internal/ui/` - Embedded Shadow DOM toolbar script (`assets/toolbar.js`)
-- **Gin Adapter** (`adapter/gin/`) - `ginadapter.Attach(engine)` wiring Gin middleware, route patterns, status codes, and errors
-- **GORM Adapter** (`adapter/gorm/`) - `gormadapter.Attach(db)` registering a `gorm.Plugin` that captures SQL queries, variables, rows affected, duration, and errors
+  - `internal/contract/` - Collector, Section, ToolbarItem, ResponseInfo, Panel, Widget and TimelineEvent contracts
+  - `internal/contextstate/` - Per-request `Recorder` (queries, errors, logs, spans, outgoing calls, panic, body) stored in `context.Context`
+  - `internal/collector/` - Built-in collectors (request, runtime, query, log, HTTP client, timeline)
+  - `internal/engine/` - `Engine`, `Session`, ring-buffer `Store`, `Persister`, `ResponseRecorder` and the profiler endpoints
+  - `internal/redact/` - Masking of headers, query parameters, URLs and request bodies
+  - `internal/ui/` - Embedded renderer, toolbar and dashboard assets
+- **Adapters** (`adapter/`): `adapter/gin` (`ginadapter.Attach`), `adapter/gorm` (`gormadapter.Attach`, `gormadapter.Plugin`), `adapter/pgx` (`pgxadapter.NewTracer`, `pgxadapter.Attach`), `adapter/sql` (`sqladapter.Open`, `Wrap`, `WrapConnector`, `Attach`)
 - **Codecheck** (`tools/codecheck/`) - AST linter enforcing project code conventions
+
+`Option` is `func(*engine.Engine)`: only packages inside this module can write options, which keeps adapters bound to the engine without a registry.
 
 **Key architectural principle**: Only types and functions meant to be called by external users are exported in the root package and `adapter/*` packages. All internal mechanics live in `internal/*` so external callers cannot depend on or invoke internal methods.
 
@@ -58,7 +60,8 @@ Every data source implements the `Collector` interface:
 
 ```go
 type Collector interface {
-	Collect(r *http.Request, res ResponseInfo) Section
+	Name() string
+	Collect(ctx context.Context, request *http.Request, response *ResponseInfo) *Section
 }
 ```
 
@@ -66,7 +69,7 @@ When adding a collector or adapter:
 
 1. Built-in collectors belong in `internal/collector/<name>_collector.go` with a matching `_test.go` file.
 2. Third-party framework or library adapters belong in `adapter/<name>/` and expose only `Attach(...) godebugbar.Option`, keeping adapter structs unexported.
-3. Record per-request events into `context.Context` via `contextstate.RecorderFromContext(ctx)` during request execution.
+3. Record per-request events into `context.Context` via `contextstate.RecorderFromContext(ctx)` (or the public `godebugbar.FromContext(ctx)`) during request execution. Never record outside a profiled request.
 4. Build the toolbar summary (`ToolbarItem`) and detailed view (`Panel`) in `Collect`.
 5. Document every Go package directory in its `README.md`.
 

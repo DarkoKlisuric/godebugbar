@@ -36,12 +36,14 @@ type ToolbarItem struct {
 }
 
 type ResponseInfo struct {
-	Status   int
-	Size     int
-	Duration time.Duration
-	Headers  http.Header
-	Route    string
-	Errors   []string
+	Status     int
+	Size       int
+	Duration   time.Duration
+	Headers    http.Header
+	Route      string
+	Errors     []string
+	Panic      string
+	PanicStack string
 }
 
 type Section struct {

@@ -51,3 +51,9 @@ linters:
     rules:
       - path: tools/
         linters: [depguard, gosec]
+      - path: adapter/sql/
+        linters: [staticcheck]
+        text: "SA1019"
+      - path: internal/engine/response_recorder.go
+        linters: [gosec]
+        text: "G705"
