@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DarkoKlisuric/godebugbar"
 )
@@ -23,8 +24,19 @@ func TestOptionsConfiguration(t *testing.T) {
 		godebugbar.WithPrefix("custom_debug/"),
 		godebugbar.WithExcludedPrefixes("/health"),
 		godebugbar.WithExcludedPaths("/ready"),
-		godebugbar.WithExcludedMethods(http.MethodOptions, http.MethodHead),
+		godebugbar.WithExcludedMethods(http.MethodHead),
 		godebugbar.WithCollectors(&stubCollector{}),
+		godebugbar.WithAuthorizer(func(*http.Request) bool { return true }),
+		godebugbar.WithRedactedHeaders("X-Tenant"),
+		godebugbar.WithRedactedQueryParams("session"),
+		godebugbar.WithRedactedBodyFields("pin"),
+		godebugbar.WithRequestBody(4096),
+		godebugbar.WithEntryLimit(10),
+		godebugbar.WithSlowQueryThreshold(time.Second),
+		godebugbar.WithNPlusOneThreshold(5),
+		godebugbar.WithSourceSkip("internal/platform/database"),
+		godebugbar.WithMaxHTMLBuffer(1<<20),
+		godebugbar.WithPublicURL("http://localhost:8080/custom_debug"),
 	)
 
 	handler := p.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

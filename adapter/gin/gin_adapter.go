@@ -1,145 +1,154 @@
 package ginadapter
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"net"
+	"net/http"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/DarkoKlisuric/godebugbar"
-	"github.com/DarkoKlisuric/godebugbar/internal/collector"
-	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 	"github.com/DarkoKlisuric/godebugbar/internal/contract"
 	"github.com/DarkoKlisuric/godebugbar/internal/engine"
 )
+
+const routesRegisteredMessage = "godebugbar: ginadapter.Attach must run before any route is registered; %d routes would not be profiled"
 
 type ginAdapter struct {
 	eng *engine.Engine
 }
 
 func Attach(router *gin.Engine) godebugbar.Option {
-	return func(p *godebugbar.Profiler) {
-		if router == nil || p == nil {
+	return func(e *engine.Engine) {
+		if router == nil {
 			return
 		}
-		eng := engine.Lookup(p)
-		if eng == nil {
-			return
-		}
-		eng.AddCollectors(collector.NewRequestCollector())
-		eng.AddInitializer(func(e *engine.Engine) {
+		e.AddInitializer(func(e *engine.Engine) {
+			if !e.Enabled() {
+				return
+			}
+			if routes := router.Routes(); len(routes) > 0 {
+				panic(fmt.Sprintf(routesRegisteredMessage, len(routes)))
+			}
+			router.ContextWithFallback = true
 			a := &ginAdapter{eng: e}
-			a.mount(router)
 			router.Use(a.middleware())
+			a.mount(router)
 		})
 	}
 }
 
 func (a *ginAdapter) mount(router *gin.Engine) {
-	if !a.eng.Enabled() {
+	if !a.eng.ServesEndpoints() {
 		return
 	}
 	handler := gin.WrapH(a.eng.Handler())
 	prefix := a.eng.Prefix()
-	if a.eng.DashboardEnabled() {
-		router.GET(prefix, handler)
-		router.GET(prefix+"/", handler)
-	}
-	router.GET(prefix+"/assets/toolbar.js", handler)
-	router.GET(prefix+"/api/profiles", handler)
-	router.GET(prefix+"/api/profiles/latest", handler)
-	router.GET(prefix+"/api/profiles/:id", handler)
-	router.OPTIONS(prefix+"/api/profiles", handler)
-	router.OPTIONS(prefix+"/api/profiles/latest", handler)
-	router.OPTIONS(prefix+"/api/profiles/:id", handler)
+	router.Any(prefix, handler)
+	router.Any(prefix+"/*path", handler)
 }
 
 func (a *ginAdapter) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !a.eng.Enabled() {
-			c.Next()
-			return
-		}
-
 		path := c.Request.URL.Path
-		prefix := a.eng.Prefix()
-		if path == prefix || strings.HasPrefix(path, prefix+"/") || a.eng.ShouldSkip(c.Request.Method, path) {
+		if a.eng.IsEndpoint(path) || a.eng.ShouldSkip(c.Request.Method, path) {
 			c.Next()
 			return
 		}
 
-		rec := contextstate.NewRecorder()
-		ctx := contextstate.WithRecorder(c.Request.Context(), rec)
-		c.Request = c.Request.WithContext(ctx)
+		session := a.eng.Begin(c.Request)
+		c.Request = session.Request
 
 		gw := &ginResponseWriter{
 			ResponseWriter: c.Writer,
 			allowHTML:      a.eng.HTMLInjectionEnabled(),
+			headRequest:    c.Request.Method == http.MethodHead,
+			maxBuffer:      a.eng.MaxBuffer(),
 		}
 		c.Writer = gw
+		session.PrepareHeaders(gw.Header())
 
-		profileID := a.eng.NewProfileID()
-		c.Header(engine.ProfileHeader, profileID)
-		a.eng.ExposeProfileHeader(c.Writer.Header())
-
-		start := time.Now()
-		c.Next()
-		duration := time.Since(start)
-
-		if route := c.FullPath(); route != "" {
-			rec.SetRoute(route)
-		}
-
-		for _, ginErr := range c.Errors {
-			if ginErr != nil && ginErr.Err != nil {
-				rec.AddError(ginErr.Err.Error())
+		defer func() {
+			if v := recover(); v != nil {
+				session.RecordPanic(v)
+				a.finish(c, session, gw, http.StatusInternalServerError)
+				panic(v)
 			}
-		}
+		}()
+		c.Next()
 
-		a.eng.RecordRequest(c.Request, profileID, start, duration, &contract.ResponseInfo{
-			Status:   gw.Status(),
-			Size:     gw.size,
-			Duration: duration,
-			Headers:  gw.Header().Clone(),
-			Route:    rec.Route(),
-			Errors:   rec.Errors(),
-		})
-
-		snippet := ""
-		if a.eng.HTMLInjectionEnabled() {
-			snippet = a.eng.Snippet(profileID)
-		}
-		gw.flushWithSnippet(snippet)
+		a.finish(c, session, gw, gw.Status())
+		gw.finish(session.Snippet())
 	}
+}
+
+func (a *ginAdapter) finish(c *gin.Context, session *engine.Session, gw *ginResponseWriter, status int) {
+	if route := c.FullPath(); route != "" {
+		session.Recorder.SetRoute(route)
+	}
+	for _, ginErr := range c.Errors {
+		if ginErr != nil && ginErr.Err != nil {
+			session.Recorder.AddError(ginErr.Err.Error())
+		}
+	}
+
+	session.End(&contract.ResponseInfo{
+		Status:  status,
+		Size:    gw.size,
+		Headers: gw.Header().Clone(),
+	})
 }
 
 type ginResponseWriter struct {
 	gin.ResponseWriter
-	buf       bytes.Buffer
-	allowHTML bool
-	isHTML    bool
-	decided   bool
-	size      int
+	buf         bytes.Buffer
+	allowHTML   bool
+	headRequest bool
+	maxBuffer   int
+	buffering   bool
+	decided     bool
+	hijacked    bool
+	size        int
 }
 
 func (w *ginResponseWriter) Write(b []byte) (int, error) {
 	w.decide(b)
 	w.size += len(b)
-	if w.isHTML {
+	if w.buffering && w.buf.Len()+len(b) > w.maxBuffer {
+		if err := w.passthrough(); err != nil {
+			return 0, err
+		}
+	}
+	if w.buffering {
 		return w.buf.Write(b)
 	}
+
 	return w.ResponseWriter.Write(b)
 }
 
 func (w *ginResponseWriter) WriteString(s string) (int, error) {
-	w.decide([]byte(s))
-	w.size += len(s)
-	if w.isHTML {
-		return w.buf.WriteString(s)
+	return w.Write([]byte(s))
+}
+
+func (w *ginResponseWriter) Flush() {
+	_ = w.passthrough()
+	w.ResponseWriter.Flush()
+}
+
+func (w *ginResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := w.ResponseWriter.Hijack()
+	if err == nil {
+		w.hijacked = true
 	}
-	return w.ResponseWriter.WriteString(s)
+
+	return conn, rw, err
+}
+
+func (w *ginResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func (w *ginResponseWriter) decide(sample []byte) {
@@ -147,33 +156,38 @@ func (w *ginResponseWriter) decide(sample []byte) {
 		return
 	}
 	w.decided = true
-	if !w.allowHTML {
+	if !w.allowHTML || w.headRequest || w.Written() {
 		return
 	}
-	ct := w.Header().Get("Content-Type")
-	if ct == "" && len(sample) > 0 {
-		ct = "text/plain"
-		if strings.Contains(strings.ToLower(string(sample)), "<html") || strings.Contains(strings.ToLower(string(sample)), "<body") {
-			ct = "text/html; charset=utf-8"
-		}
+	status := w.Status()
+	if status == http.StatusNoContent || status == http.StatusNotModified {
+		return
 	}
-	enc := w.Header().Get("Content-Encoding")
-	w.isHTML = strings.Contains(strings.ToLower(ct), "text/html") && enc == ""
+	header := w.Header()
+	if header.Get("Content-Type") == "" && len(sample) > 0 {
+		header.Set("Content-Type", http.DetectContentType(sample))
+	}
+	w.buffering = engine.IsInjectableHTML(header)
 }
 
-func (w *ginResponseWriter) flushWithSnippet(snippet string) {
-	if !w.isHTML {
+func (w *ginResponseWriter) passthrough() error {
+	if !w.buffering {
+		return nil
+	}
+	w.buffering = false
+	_, err := w.ResponseWriter.Write(w.buf.Bytes())
+	w.buf.Reset()
+
+	return err
+}
+
+func (w *ginResponseWriter) finish(snippet string) {
+	if w.hijacked || !w.buffering {
 		return
 	}
-	body := w.buf.String()
-	lower := strings.ToLower(body)
-	idx := strings.LastIndex(lower, "</body>")
-	var out string
-	if idx != -1 {
-		out = body[:idx] + snippet + body[idx:]
-	} else {
-		out = body + snippet
-	}
+	out := engine.InjectSnippet(w.buf.Bytes(), snippet)
+	w.buffering = false
+	w.buf.Reset()
 	w.Header().Set("Content-Length", strconv.Itoa(len(out)))
-	_, _ = w.ResponseWriter.Write([]byte(out))
+	_, _ = w.ResponseWriter.Write(out)
 }

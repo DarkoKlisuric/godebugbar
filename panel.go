@@ -3,10 +3,11 @@ package godebugbar
 import "github.com/DarkoKlisuric/godebugbar/internal/contract"
 
 type (
-	Panel      = contract.Panel
-	Widget     = contract.Widget
-	WidgetKind = contract.WidgetKind
-	Metric     = contract.Metric
+	Panel         = contract.Panel
+	Widget        = contract.Widget
+	WidgetKind    = contract.WidgetKind
+	Metric        = contract.Metric
+	TimelineEvent = contract.TimelineEvent
 )
 
 const (
@@ -14,6 +15,7 @@ const (
 	WidgetKindKeyValue = contract.WidgetKindKeyValue
 	WidgetKindTable    = contract.WidgetKindTable
 	WidgetKindCode     = contract.WidgetKindCode
+	WidgetKindTimeline = contract.WidgetKindTimeline
 )
 
 func NewPanel(title string) *Panel {

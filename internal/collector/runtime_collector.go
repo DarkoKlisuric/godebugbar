@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"runtime/metrics"
 	"strconv"
 
 	"github.com/DarkoKlisuric/godebugbar/internal/contract"
@@ -13,6 +14,11 @@ import (
 const (
 	runtimeCollectorName = "runtime"
 	bytesPerMegabyte     = 1024 * 1024
+
+	metricHeapObjects = "/memory/classes/heap/objects:bytes"
+	metricTotalMemory = "/memory/classes/total:bytes"
+	metricGoroutines  = "/sched/goroutines:goroutines"
+	metricGCCycles    = "/gc/cycles/total:gc-cycles"
 )
 
 type RuntimeCollector struct{}
@@ -26,22 +32,27 @@ func (c *RuntimeCollector) Name() string {
 }
 
 func (c *RuntimeCollector) Collect(_ context.Context, _ *http.Request, _ *contract.ResponseInfo) *contract.Section {
-	var stats runtime.MemStats
-	runtime.ReadMemStats(&stats)
+	samples := []metrics.Sample{
+		{Name: metricHeapObjects},
+		{Name: metricTotalMemory},
+		{Name: metricGoroutines},
+		{Name: metricGCCycles},
+	}
+	metrics.Read(samples)
 
-	goroutines := runtime.NumGoroutine()
-	heapMB := float64(stats.HeapAlloc) / bytesPerMegabyte
-	sysMB := float64(stats.Sys) / bytesPerMegabyte
-
-	heapText := fmt.Sprintf("%.2f MB", heapMB)
-	sysText := fmt.Sprintf("%.2f MB", sysMB)
+	heapText := fmt.Sprintf("%.2f MB", float64(sampleUint(samples[0]))/bytesPerMegabyte)
+	sysText := fmt.Sprintf("%.2f MB", float64(sampleUint(samples[1]))/bytesPerMegabyte)
+	goroutineText := strconv.FormatUint(sampleUint(samples[2]), 10)
+	if goroutineText == "0" {
+		goroutineText = strconv.Itoa(runtime.NumGoroutine())
+	}
 
 	panel := contract.NewPanel("Go Runtime").
 		AddMetrics(
-			contract.NewMetric("Heap Alloc", heapText),
-			contract.NewMetric("System Memory", sysText),
-			contract.NewMetric("Goroutines", strconv.Itoa(goroutines)),
-			contract.NewMetric("GC Cycles", strconv.FormatUint(uint64(stats.NumGC), 10)),
+			contract.NewMetric("Heap In Use", heapText),
+			contract.NewMetric("Total Memory", sysText),
+			contract.NewMetric("Goroutines", goroutineText),
+			contract.NewMetric("GC Cycles", strconv.FormatUint(sampleUint(samples[3]), 10)),
 		).
 		AddKeyValue("Environment", map[string]string{
 			"Go Version": runtime.Version(),
@@ -52,14 +63,22 @@ func (c *RuntimeCollector) Collect(_ context.Context, _ *http.Request, _ *contra
 	return contract.NewSection(
 		contract.ToolbarItem{
 			Label: "Runtime",
-			Value: fmt.Sprintf("%s | %d gr", heapText, goroutines),
+			Value: fmt.Sprintf("%s | %s gr", heapText, goroutineText),
 			Color: contract.ColorDefault,
 			Tooltip: map[string]string{
 				"Heap":       heapText,
-				"Goroutines": strconv.Itoa(goroutines),
+				"Goroutines": goroutineText,
 				"Go":         runtime.Version(),
 			},
 		},
 		panel,
 	)
+}
+
+func sampleUint(s metrics.Sample) uint64 {
+	if s.Value.Kind() != metrics.KindUint64 {
+		return 0
+	}
+
+	return s.Value.Uint64()
 }
