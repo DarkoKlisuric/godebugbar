@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.2.0...v0.3.0) (2026-11-14)
+
+
+### Features
+
+* add default collectors, gin and gorm adapters ([74d3277](https://github.com/DarkoKlisuric/godebugbar/commit/74d327705c5f6c9a26b6f2330c112e1adca93b63))
+* add default request, query and runtime collectors ([ea42995](https://github.com/DarkoKlisuric/godebugbar/commit/ea429954124b04f5dd12f7f3e6efac45da23c3e6))
+* add the gin and gorm adapters ([62b34af](https://github.com/DarkoKlisuric/godebugbar/commit/62b34afe52f888d0f00b18ff0cd531601e9f8cfd))
+
 ## [0.2.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.1.0...v0.2.0) (2026-11-14)
 
 
