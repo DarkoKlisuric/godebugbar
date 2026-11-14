@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release PR, auto-merge and tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Merge the release PR once its checks pass
+        if: steps.release.outputs.pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: gh pr merge "$(jq -r .number <<<"$PR_JSON")" --auto --merge --repo "$GITHUB_REPOSITORY"

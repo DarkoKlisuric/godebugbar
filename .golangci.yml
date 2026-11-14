@@ -1,0 +1,53 @@
+version: "2"
+
+formatters:
+  enable: [gofumpt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/DarkoKlisuric/godebugbar]
+  exclusions:
+    generated: strict
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - contextcheck
+    - depguard
+    - errcheck
+    - errorlint
+    - exhaustive
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - nilerr
+    - noctx
+    - paralleltest
+    - revive
+    - staticcheck
+    - thelper
+    - unused
+    - usestdlibvars
+  settings:
+    depguard:
+      rules:
+        core:
+          files: ["$all", "!**/adapter/**", "!**/tools/**", "!$test"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/DarkoKlisuric/godebugbar
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    exhaustive:
+      default-signifies-exhaustive: true
+  exclusions:
+    generated: strict
+    rules:
+      - path: tools/
+        linters: [depguard, gosec]
