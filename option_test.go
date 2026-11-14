@@ -6,8 +6,9 @@ func TestOptions(t *testing.T) {
 	t.Parallel()
 
 	customCollector := &stubCollector{name: "custom"}
-	profiler := NewProfiler(
+	profiler := New(
 		WithEnabled(false),
+		WithDefaultCollectors(false),
 		WithStorageSize(10),
 		WithPrefix("/_custom"),
 		WithCollectors(customCollector),

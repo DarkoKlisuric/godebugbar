@@ -35,7 +35,7 @@ func (c *stubCollector) Collect(ctx context.Context, _ *http.Request, _ *Respons
 func TestProfilerMiddlewareAndAPI(t *testing.T) {
 	t.Parallel()
 
-	profiler := NewProfiler(
+	profiler := New(
 		WithCollectors(&stubCollector{name: "stub"}),
 		WithExcludedPrefixes("/healthz"),
 	)
@@ -82,8 +82,20 @@ func TestProfilerMiddlewareAndAPI(t *testing.T) {
 		t.Errorf("got profile = %+v, want ID=%q Route=/pages/{slug}", got, profileID)
 	}
 
-	if len(got.Sections) != 1 || got.Sections[0].Toolbar.Value != "recorded-value" {
-		t.Errorf("got sections = %+v, want stub collector with recorded-value", got.Sections)
+	if len(got.Sections) != 4 {
+		t.Fatalf("len(got.Sections) = %d, want 4 (request, database, runtime, stub)", len(got.Sections))
+	}
+
+	if got.Sections[3].Toolbar.Value != "recorded-value" {
+		t.Errorf("got stub section = %+v, want recorded-value", got.Sections[3])
+	}
+
+	jsReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/toolbar.js", nil)
+	jsRec := httptest.NewRecorder()
+	wrapped.ServeHTTP(jsRec, jsReq)
+
+	if jsRec.Code != http.StatusOK || !strings.Contains(jsRec.Body.String(), "GoDebugbar") {
+		t.Errorf("GET toolbar.js status = %d, want 200 with script body", jsRec.Code)
 	}
 
 	listReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles", nil)
