@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.3.1...v0.4.0) (2026-11-14)
+
+
+### Features
+
+* add standalone profiler dashboard, CORS support, and opt-in collector options ([1be9b88](https://github.com/DarkoKlisuric/godebugbar/commit/1be9b88dd83e5fcdf0eee91ff779d76d784cdcad))
+* add standalone profiler dashboard, CORS support, and opt-in collector options ([245a756](https://github.com/DarkoKlisuric/godebugbar/commit/245a756cacb854b0a0a1931d085b5ca0215ba815))
+
 ## [0.3.1](https://github.com/DarkoKlisuric/godebugbar/compare/v0.3.0...v0.3.1) (2026-11-14)
 
 
