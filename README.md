@@ -153,7 +153,7 @@ http.ListenAndServe(":8080", bar.Middleware(mux))
 
 ## The UI
 
-- **Toolbar**: one badge per collector, colored by severity; click for a resizable panel. Follows new requests (toggle “Follow”), shows “N new” while a panel is open, keeps a 50-entry history, links to the full profiler, minimizes to a corner button and remembers its state in `localStorage`. Esc closes the panel.
+- **Toolbar**: one badge per collector, colored by severity; click for a resizable panel. Follows every new request and refreshes an open panel (toggle “Follow”); after you pick an older request from the history it stays there and shows “N new” until you click it. It also follows SPA navigation: the bar shows the current page and how many API requests it made, and says when a page was served from the app's cache without reaching the server, keeps a 50-entry history, links to the full profiler, minimizes to a corner button and remembers its state in `localStorage`. Esc closes the panel.
 - **Profiler** (`/_debugbar`): request list with filter, live updates that pause on demand and while the tab is hidden, deep links (`/_debugbar?id=<profile id>`), sortable and filterable tables, highlighted slow, duplicate and N+1 queries, EXPLAIN for SELECT statements (GORM), timeline, Copy as cURL and JSON export.
 
 ## Development

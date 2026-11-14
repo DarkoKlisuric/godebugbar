@@ -58,6 +58,9 @@
     .badge.red { border-left: 3px solid var(--gdb-red); }
     .pill { background: var(--gdb-accent); color: #0b1120; border: none; border-radius: 10px; padding: 1px 8px; font-weight: 700; cursor: pointer; }
     .muted { color: var(--gdb-muted); }
+    .page { color: var(--gdb-muted); white-space: nowrap; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+    .page b { color: var(--gdb-text); font-weight: 600; }
+    .notice { color: var(--gdb-muted); font-style: italic; white-space: nowrap; }
     .error { color: var(--gdb-red); }
     select, .icon { background: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 3px 6px; font: inherit; font-size: 11px; color: var(--gdb-text); max-width: 260px; }
     .icon { cursor: pointer; }
@@ -82,9 +85,11 @@
   const openLink = h('a', { className: 'icon', text: 'Open ↗', attrs: { target: '_blank', rel: 'noopener', title: 'Open this request in the profiler' } });
   const minimizeBtn = h('button', { className: 'icon', text: '–', attrs: { type: 'button', title: 'Minimize', 'aria-label': 'Minimize toolbar' } });
   const status = h('span', { className: 'muted' });
+  const pageChip = h('span', { className: 'page', attrs: { title: 'API requests made since this page opened' } });
   const brand = h('button', { className: 'brand', text: 'GoDebugBar', attrs: { type: 'button', title: 'Minimize' } });
   const bar = h('div', { className: 'bar' },
     brand,
+    pageChip,
     items,
     h('div', { className: 'tools' }, status, newPill, h('label', { attrs: { title: 'Follow new requests' } }, followBox, 'Follow'), historySelect, openLink, minimizeBtn));
 
@@ -104,7 +109,11 @@
   let current = null;
   let history = [];
   let newCount = 0;
+  let pinned = false;
   let loadSeq = 0;
+  let page = { path: window.location.pathname, count: 0, settled: false };
+  let pageTimer = null;
+  const PAGE_SETTLE_MS = 1200;
 
   const profileUrl = (id) => `${baseUrl}?id=${encodeURIComponent(id)}`;
   const worstColor = (profile) => {
@@ -115,7 +124,7 @@
   };
 
   const applyLayout = () => {
-    const open = !!state.panel && !state.minimized;
+    const open = !!state.panel && !!current && !state.minimized;
     bar.hidden = state.minimized;
     mini.hidden = !state.minimized;
     mini.className = `mini ${worstColor(current)}`;
@@ -125,7 +134,11 @@
   };
 
   const renderPanel = () => {
-    const section = current && (current.sections || []).find((s) => s.name === state.panel);
+    if (!current) {
+      applyLayout();
+      return;
+    }
+    const section = (current.sections || []).find((s) => s.name === state.panel);
     if (!section) {
       state.panel = '';
       applyLayout();
@@ -139,8 +152,19 @@
     });
   };
 
+  const renderPage = () => {
+    pageChip.textContent = '';
+    let detail = '';
+    if (page.count > 0) detail = ` · ${page.count} API ${page.count === 1 ? 'request' : 'requests'}`;
+    else if (page.settled) detail = ' · no API request';
+    pageChip.append(h('b', { text: page.path }), detail);
+  };
+
   const renderBar = () => {
     items.textContent = '';
+    if (!current && page.settled && page.count === 0) {
+      items.appendChild(h('span', { className: 'notice', text: 'This page was served from the app\'s cache: no request reached the server.' }));
+    }
     (current && current.sections || []).forEach((section) => {
       const item = section.toolbar || {};
       const badge = h('button', {
@@ -196,7 +220,9 @@
 
   const onProfileId = async (id) => {
     if (!id || history.some((p) => p.id === id)) return;
-    if (state.follow && !state.panel) {
+    page.count += 1;
+    renderPage();
+    if (state.follow && !pinned) {
       newCount = 0;
       await show(id);
       return;
@@ -211,6 +237,36 @@
       return;
     }
   };
+
+  const onRouteChange = () => {
+    const path = window.location.pathname;
+    if (path === page.path) return;
+    page = { path, count: 0, settled: false };
+    renderPage();
+    clearTimeout(pageTimer);
+    pageTimer = setTimeout(() => {
+      if (page.path !== path) return;
+      page.settled = true;
+      renderPage();
+      if (page.count === 0 && state.follow && !pinned) {
+        loadSeq += 1;
+        current = null;
+        renderHistory();
+        renderBar();
+        applyLayout();
+      }
+    }, PAGE_SETTLE_MS);
+  };
+
+  ['pushState', 'replaceState'].forEach((method) => {
+    const original = window.history[method];
+    window.history[method] = function patchedHistory(...args) {
+      const result = original.apply(this, args);
+      onRouteChange();
+      return result;
+    };
+  });
+  window.addEventListener('popstate', onRouteChange);
 
   const isOwnCall = (url) => String(url || '').includes(baseUrl);
 
@@ -252,15 +308,23 @@
     renderBar();
     applyLayout();
   });
+  const showLatest = () => {
+    pinned = false;
+    newCount = 0;
+    if (history[0]) show(history[0].id);
+  };
+
   followBox.addEventListener('change', () => {
     state.follow = followBox.checked;
     saveState();
+    if (state.follow) showLatest();
   });
-  historySelect.addEventListener('change', () => show(historySelect.value));
-  newPill.addEventListener('click', () => {
-    newCount = 0;
-    if (history[0]) show(history[0].id);
+  historySelect.addEventListener('change', () => {
+    pinned = !!history[0] && historySelect.value !== history[0].id;
+    if (!pinned) newCount = 0;
+    show(historySelect.value);
   });
+  newPill.addEventListener('click', showLatest);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && state.panel) {
       state.panel = '';
@@ -286,6 +350,7 @@
     window.addEventListener('pointerup', up);
   });
 
+  renderPage();
   document.documentElement.appendChild(host);
   (document.body || document.documentElement).appendChild(spacer);
   applyLayout();
