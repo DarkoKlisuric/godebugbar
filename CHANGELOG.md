@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/DarkoKlisuric/godebugbar/compare/v1.0.0...v1.0.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* keep the toolbar on the latest request and the current page ([7fe2d88](https://github.com/DarkoKlisuric/godebugbar/commit/7fe2d8867a1efdfc12e17d8d6bd57153dd181ff5))
+* keep the toolbar on the latest request and the current page ([fbd2122](https://github.com/DarkoKlisuric/godebugbar/commit/fbd21221a56d47ecd40b85e5485f2f43db1f2476))
+
 ## [1.0.0](https://github.com/DarkoKlisuric/godebugbar/compare/v0.4.0...v1.0.0) (2026-11-14)
 
 
