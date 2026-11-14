@@ -5,372 +5,246 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GoDebugBar Profiler</title>
   <style>
+    :root { color-scheme: dark; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 0 0 42px 0;
-      background: #090d16;
-      color: #e2e8f0;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 13px;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 20px;
-      background: #0f172a;
-      border-bottom: 1px solid #1e293b;
-    }
-    .brand {
-      font-size: 15px;
-      font-weight: 700;
-      color: #38bdf8;
-    }
-    .controls {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    button, input {
-      background: #1e293b;
-      color: #e2e8f0;
-      border: 1px solid #334155;
-      border-radius: 4px;
-      padding: 5px 10px;
-      font-family: inherit;
-      font-size: 12px;
-    }
+    body { margin: 0; background: var(--gdb-bg); color: var(--gdb-text); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
+    a { color: var(--gdb-accent); }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--gdb-panel); border-bottom: 1px solid var(--gdb-border); flex-wrap: wrap; }
+    .brand { font-size: 15px; font-weight: 700; color: var(--gdb-accent); }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    button, input, select { background: #1e293b; color: var(--gdb-text); border: 1px solid #334155; border-radius: 4px; padding: 5px 10px; font: inherit; font-size: 12px; }
     button { cursor: pointer; }
-    button:hover { border-color: #38bdf8; }
-    .layout {
-      display: grid;
-      grid-template-columns: 360px 1fr;
-      height: calc(100vh - 85px);
-    }
-    .sidebar {
-      border-right: 1px solid #1e293b;
-      overflow-y: auto;
-      background: #0b1120;
-    }
-    .req-item {
-      padding: 10px 14px;
-      border-bottom: 1px solid #1e293b;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .req-item:hover, .req-item.active {
-      background: #162238;
-    }
-    .req-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-    .method {
-      font-weight: 700;
-      color: #38bdf8;
-    }
-    .status {
-      padding: 1px 6px;
-      border-radius: 3px;
-      font-size: 11px;
-      font-weight: 700;
-    }
+    button:hover, button:focus-visible, input:focus-visible { border-color: var(--gdb-accent); outline: none; }
+    button[aria-pressed="true"] { border-color: var(--gdb-accent); background: #1e3a5f; }
+    .conn { font-size: 11px; color: var(--gdb-muted); }
+    .conn.error { color: var(--gdb-red); }
+    .layout { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; height: calc(100vh - 53px); }
+    .sidebar { border-right: 1px solid var(--gdb-border); overflow-y: auto; background: var(--gdb-bg); }
+    .req { padding: 9px 12px; border-bottom: 1px solid var(--gdb-border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; background: none; border-radius: 0; border-width: 0 0 1px 0; }
+    .req:hover, .req.active, .req:focus-visible { background: #162238; }
+    .req-top, .req-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .req-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .method { font-weight: 700; color: var(--gdb-accent); margin-right: 6px; }
+    .req-meta { color: var(--gdb-muted); font-size: 11px; }
+    .dots { display: inline-flex; gap: 3px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #334155; }
+    .dot.green { background: var(--gdb-green); }
+    .dot.yellow { background: var(--gdb-yellow); }
+    .dot.red { background: var(--gdb-red); }
+    .status { padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 700; }
+    .status.s1, .status.s3 { background: #1e3a5f; color: #93c5fd; }
     .status.s2 { background: #14532d; color: #86efac; }
     .status.s4 { background: #713f12; color: #fde047; }
     .status.s5 { background: #7f1d1d; color: #fca5a5; }
-    .req-meta {
-      color: #94a3b8;
-      font-size: 11px;
-      display: flex;
-      justify-content: space-between;
-    }
-    .main {
-      overflow-y: auto;
-      padding: 18px 24px;
-    }
-    .tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      border-bottom: 1px solid #1e293b;
-      padding-bottom: 10px;
-      flex-wrap: wrap;
-    }
-    .tab {
-      padding: 6px 12px;
-      border-radius: 4px;
-      background: #1e293b;
-      border: 1px solid #334155;
-      cursor: pointer;
-    }
-    .tab.active {
-      background: #1e3a5f;
-      border-color: #38bdf8;
-    }
-    .metrics {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 18px;
-    }
-    .metric {
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-radius: 6px;
-      padding: 10px 14px;
-      min-width: 140px;
-    }
-    .metric-label { color: #94a3b8; font-size: 11px; }
-    .metric-val { font-size: 16px; font-weight: 700; margin-top: 4px; }
-    .widget-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: #94a3b8;
-      text-transform: uppercase;
-      margin: 16px 0 8px 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 16px;
-      background: #0f172a;
-      border: 1px solid #1e293b;
-    }
-    th, td {
-      text-align: left;
-      padding: 8px 10px;
-      border-bottom: 1px solid #1e293b;
-      vertical-align: top;
-      word-break: break-all;
-    }
-    th { color: #94a3b8; width: 220px; background: #111a2e; }
-    pre {
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      padding: 12px;
-      border-radius: 4px;
-      overflow-x: auto;
-    }
-    .empty {
-      color: #64748b;
-      padding: 40px 20px;
-      text-align: center;
-    }
+    .main { overflow-y: auto; padding: 16px 22px; }
+    .summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .summary h1 { font-size: 15px; margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .summary .meta { color: var(--gdb-muted); font-size: 11px; margin-top: 4px; }
+    .tabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--gdb-border); padding-bottom: 10px; flex-wrap: wrap; }
+    .tab { border-left-width: 3px; }
+    .tab.green { border-left-color: var(--gdb-green); }
+    .tab.yellow { border-left-color: var(--gdb-yellow); }
+    .tab.red { border-left-color: var(--gdb-red); }
+    .tab[aria-selected="true"] { background: #1e3a5f; border-top-color: var(--gdb-accent); border-right-color: var(--gdb-accent); border-bottom-color: var(--gdb-accent); }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; height: auto; } .sidebar { max-height: 40vh; } }
   </style>
 </head>
 <body>
   <header>
     <div class="brand">GoDebugBar Profiler</div>
     <div class="controls">
-      <input id="filter" type="text" placeholder="Filter path or method..." />
-      <button id="refresh">Refresh</button>
+      <input id="filter" type="search" placeholder="Filter path, method or status…" aria-label="Filter requests" />
+      <button id="live" type="button" aria-pressed="true" title="Pause or resume auto-refresh">Live</button>
+      <button id="refresh" type="button">Refresh</button>
+      <span id="conn" class="conn" role="status"></span>
     </div>
   </header>
   <div class="layout">
-    <div class="sidebar" id="list"></div>
-    <div class="main" id="detail">
-      <div class="empty">Select a recorded request to inspect its profile.</div>
-    </div>
+    <nav class="sidebar" id="list" aria-label="Recorded requests"></nav>
+    <main class="main" id="detail"></main>
   </div>
+  <script src="{{BASE_URL}}/assets/render.js"></script>
   <script>
-    (function () {
-      var baseUrl = "{{BASE_URL}}";
-      var listEl = document.getElementById("list");
-      var detailEl = document.getElementById("detail");
-      var filterEl = document.getElementById("filter");
-      var refreshBtn = document.getElementById("refresh");
+    (() => {
+      'use strict';
 
-      var profiles = [];
-      var selected = null;
-      var activeSection = null;
+      const R = window.GoDebugBarRender;
+      const { h } = R;
+      const baseUrl = '{{BASE_URL_JS}}';
+      const POLL_MS = 3000;
+      const MAX_PROFILES = 200;
+      const apiOrigin = new URL(baseUrl, window.location.href).origin;
 
-      function statusClass(code) {
-        if (code >= 500) return "s5";
-        if (code >= 400) return "s4";
-        return "s2";
-      }
+      document.documentElement.setAttribute('style', R.theme);
+      document.head.appendChild(h('style', { text: R.css }));
 
-      function renderList() {
-        var q = (filterEl.value || "").toLowerCase();
-        listEl.textContent = "";
-        var filtered = profiles.filter(function (p) {
-          return !q || (p.path && p.path.toLowerCase().indexOf(q) !== -1) || (p.method && p.method.toLowerCase().indexOf(q) !== -1);
-        });
+      const listEl = document.getElementById('list');
+      const detailEl = document.getElementById('detail');
+      const filterEl = document.getElementById('filter');
+      const liveBtn = document.getElementById('live');
+      const refreshBtn = document.getElementById('refresh');
+      const connEl = document.getElementById('conn');
+
+      let profiles = [];
+      let selected = null;
+      let activeSection = '';
+      let live = true;
+      let timer = null;
+
+      const setConnection = (error) => {
+        connEl.textContent = error ? `API unreachable: ${error.message}` : (live ? '' : 'paused');
+        connEl.classList.toggle('error', !!error);
+      };
+
+      const matches = (p, q) => !q || [p.method, p.path, p.route, String(p.status), p.id]
+        .some((v) => v && String(v).toLowerCase().includes(q));
+
+      const renderList = () => {
+        const q = filterEl.value.trim().toLowerCase();
+        const filtered = profiles.filter((p) => matches(p, q));
+        listEl.textContent = '';
         if (!filtered.length) {
-          var emp = document.createElement("div");
-          emp.className = "empty";
-          emp.textContent = "No recorded requests yet.";
-          listEl.appendChild(emp);
+          listEl.appendChild(h('div', { className: 'gdb-empty', text: profiles.length ? 'No request matches the filter.' : 'No recorded requests yet.' }));
           return;
         }
-        filtered.forEach(function (p) {
-          var row = document.createElement("div");
-          row.className = "req-item" + (selected && selected.id === p.id ? " active" : "");
-          var top = document.createElement("div");
-          top.className = "req-top";
-          var left = document.createElement("span");
-          var m = document.createElement("span");
-          m.className = "method";
-          m.textContent = p.method + " ";
-          var pathSpan = document.createElement("span");
-          pathSpan.textContent = p.path;
-          left.appendChild(m);
-          left.appendChild(pathSpan);
-          var st = document.createElement("span");
-          st.className = "status " + statusClass(p.status);
-          st.textContent = String(p.status);
-          top.appendChild(left);
-          top.appendChild(st);
-
-          var meta = document.createElement("div");
-          meta.className = "req-meta";
-          var dur = document.createElement("span");
-          dur.textContent = (p.duration_ms ? p.duration_ms.toFixed(2) : "0.00") + " ms";
-          var idSpan = document.createElement("span");
-          idSpan.textContent = p.id;
-          meta.appendChild(dur);
-          meta.appendChild(idSpan);
-
-          row.appendChild(top);
-          row.appendChild(meta);
-          row.addEventListener("click", function () {
-            loadProfile(p.id);
-          });
+        filtered.forEach((p) => {
+          const row = h('button', {
+            className: `req${selected && selected.id === p.id ? ' active' : ''}`,
+            attrs: { type: 'button', 'aria-current': selected && selected.id === p.id ? 'true' : false, title: p.route || p.path },
+            on: { click: () => select(p.id) },
+          },
+          h('div', { className: 'req-top' },
+            h('span', { className: 'req-path' }, h('span', { className: 'method', text: p.method }), p.path),
+            h('span', { className: `status ${R.statusClass(p.status)}`, text: p.status })),
+          h('div', { className: 'req-meta' },
+            h('span', { text: `${R.formatMs(p.duration_ms)} · ${new Date(p.created_at).toLocaleTimeString()}` }),
+            h('span', { className: 'dots' }, (p.badges || []).map((b) => h('span', { className: `dot ${b.color || ''}`, attrs: { title: `${b.label}: ${b.value}` } })))));
           listEl.appendChild(row);
         });
-      }
+      };
 
-      function renderDetail() {
-        detailEl.textContent = "";
-        if (!selected || !selected.sections || !selected.sections.length) {
-          var emp = document.createElement("div");
-          emp.className = "empty";
-          emp.textContent = "Select a recorded request to inspect its profile.";
-          detailEl.appendChild(emp);
+      const actionButton = (label, handler) => {
+        const button = h('button', { text: label, attrs: { type: 'button' } });
+        button.addEventListener('click', () => handler(button));
+        return button;
+      };
+
+      const download = (profile) => {
+        const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
+        const link = h('a', { attrs: { href: URL.createObjectURL(blob), download: `godebugbar-${profile.id}.json` } });
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      };
+
+      const renderDetail = () => {
+        detailEl.textContent = '';
+        if (!selected) {
+          detailEl.appendChild(h('div', { className: 'gdb-empty', text: 'Select a recorded request to inspect its profile.' }));
           return;
         }
-        if (!activeSection || !selected.sections.some(function (s) { return s.name === activeSection; })) {
-          activeSection = selected.sections[0].name;
-        }
+        const sections = selected.sections || [];
+        if (!sections.some((s) => s.name === activeSection)) activeSection = sections.length ? sections[0].name : '';
 
-        var tabs = document.createElement("div");
-        tabs.className = "tabs";
-        selected.sections.forEach(function (sec) {
-          var t = document.createElement("div");
-          t.className = "tab" + (sec.name === activeSection ? " active" : "");
-          var tb = sec.toolbar || {};
-          t.textContent = (tb.label || sec.name) + ": " + (tb.value || "");
-          t.addEventListener("click", function () {
-            activeSection = sec.name;
-            renderDetail();
-          });
-          tabs.appendChild(t);
+        detailEl.appendChild(h('div', { className: 'summary' },
+          h('div', {},
+            h('h1', {}, h('span', { className: 'method', text: selected.method }), selected.path,
+              h('span', { className: `status ${R.statusClass(selected.status)}`, text: selected.status })),
+            h('div', { className: 'meta', text: `${selected.route ? `route ${selected.route} · ` : ''}${R.formatMs(selected.duration_ms)} · ${selected.size} B · ${new Date(selected.created_at).toLocaleString()} · ${selected.id}` })),
+          h('div', { className: 'controls' },
+            actionButton('Copy as cURL', (b) => R.copyText(R.curl(selected, apiOrigin)).then((ok) => R.flash(b, ok ? 'Copied' : 'Copy failed'))),
+            actionButton('Copy link', (b) => R.copyText(window.location.href).then((ok) => R.flash(b, ok ? 'Copied' : 'Copy failed'))),
+            actionButton('Export JSON', () => download(selected)))));
+
+        const tabs = h('div', { className: 'tabs', attrs: { role: 'tablist' } });
+        sections.forEach((s) => {
+          const item = s.toolbar || {};
+          tabs.appendChild(h('button', {
+            className: `tab ${item.color || ''}`,
+            text: `${item.label || s.name}: ${item.value || ''}`,
+            attrs: { type: 'button', role: 'tab', 'aria-selected': s.name === activeSection ? 'true' : 'false', title: R.tooltip(item) },
+            on: { click: () => { activeSection = s.name; renderDetail(); } },
+          }));
         });
         detailEl.appendChild(tabs);
 
-        var sec = selected.sections.find(function (s) { return s.name === activeSection; });
-        if (!sec || !sec.panel) return;
-        (sec.panel.widgets || []).forEach(function (w) {
-          if (w.title) {
-            var wt = document.createElement("div");
-            wt.className = "widget-title";
-            wt.textContent = w.title;
-            detailEl.appendChild(wt);
-          }
-          if (w.kind === "metrics" && w.metrics) {
-            var mw = document.createElement("div");
-            mw.className = "metrics";
-            w.metrics.forEach(function (m) {
-              var card = document.createElement("div");
-              card.className = "metric";
-              var l = document.createElement("div");
-              l.className = "metric-label";
-              l.textContent = m.label;
-              var v = document.createElement("div");
-              v.className = "metric-val";
-              v.textContent = m.value;
-              card.appendChild(l);
-              card.appendChild(v);
-              mw.appendChild(card);
-            });
-            detailEl.appendChild(mw);
-          } else if (w.kind === "key_value" && w.pairs) {
-            var tbl = document.createElement("table");
-            Object.keys(w.pairs).forEach(function (k) {
-              var tr = document.createElement("tr");
-              var th = document.createElement("th");
-              th.textContent = k;
-              var td = document.createElement("td");
-              td.textContent = w.pairs[k];
-              tr.appendChild(th);
-              tr.appendChild(td);
-              tbl.appendChild(tr);
-            });
-            detailEl.appendChild(tbl);
-          } else if (w.kind === "table" && w.rows) {
-            var rTbl = document.createElement("table");
-            if (w.columns && w.columns.length) {
-              var trH = document.createElement("tr");
-              w.columns.forEach(function (c) {
-                var th = document.createElement("th");
-                th.textContent = c;
-                trH.appendChild(th);
-              });
-              rTbl.appendChild(trH);
-            }
-            w.rows.forEach(function (r) {
-              var tr = document.createElement("tr");
-              r.forEach(function (cell) {
-                var td = document.createElement("td");
-                td.textContent = cell;
-                tr.appendChild(td);
-              });
-              rTbl.appendChild(tr);
-            });
-            detailEl.appendChild(rTbl);
-          } else if (w.kind === "code" && w.code) {
-            var pre = document.createElement("pre");
-            pre.textContent = w.code;
-            detailEl.appendChild(pre);
-          }
+        const section = sections.find((s) => s.name === activeSection);
+        const body = h('div', { attrs: { role: 'tabpanel' } });
+        detailEl.appendChild(body);
+        R.renderWidgets(body, (section && section.panel && section.panel.widgets) || [], {
+          explainable: selected.explainable,
+          onExplain: R.explainer(baseUrl, selected.id),
         });
-      }
+      };
 
-      function loadProfile(id) {
-        fetch(baseUrl + "/api/profiles/" + encodeURIComponent(id))
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (data) {
-            if (!data) return;
-            selected = data;
-            renderList();
-            renderDetail();
-          });
-      }
+      const select = async (id) => {
+        try {
+          selected = await R.fetchJSON(`${baseUrl}/api/profiles/${encodeURIComponent(id)}`);
+          const url = new URL(window.location.href);
+          url.searchParams.set('id', id);
+          window.history.replaceState(null, '', url);
+          setConnection(null);
+        } catch (err) {
+          selected = null;
+          detailEl.textContent = '';
+          detailEl.appendChild(h('div', { className: 'gdb-empty', text: `Profile ${id} is not available: ${err.message}. It may have been evicted from the store.` }));
+          renderList();
+          return;
+        }
+        renderList();
+        renderDetail();
+      };
 
-      function loadList() {
-        fetch(baseUrl + "/api/profiles")
-          .then(function (r) { return r.ok ? r.json() : []; })
-          .then(function (list) {
-            profiles = Array.isArray(list) ? list : [];
-            if (!selected && profiles.length) {
-              loadProfile(profiles[0].id);
-            } else {
-              renderList();
-            }
-          });
-      }
+      const poll = async (full) => {
+        try {
+          const since = !full && profiles.length ? `?since=${encodeURIComponent(profiles[0].id)}` : '';
+          const fresh = await R.fetchJSON(`${baseUrl}/api/profiles${since}`);
+          profiles = full ? fresh : [...fresh, ...profiles].slice(0, MAX_PROFILES);
+          setConnection(null);
+          renderList();
+        } catch (err) {
+          setConnection(err);
+        }
+      };
 
-      filterEl.addEventListener("input", renderList);
-      refreshBtn.addEventListener("click", loadList);
-      loadList();
-      setInterval(loadList, 3000);
+      const schedule = () => {
+        clearInterval(timer);
+        timer = null;
+        if (live && !document.hidden) timer = setInterval(() => poll(false), POLL_MS);
+      };
+
+      liveBtn.addEventListener('click', () => {
+        live = !live;
+        liveBtn.setAttribute('aria-pressed', String(live));
+        liveBtn.textContent = live ? 'Live' : 'Paused';
+        setConnection(null);
+        schedule();
+      });
+      refreshBtn.addEventListener('click', () => poll(true));
+      filterEl.addEventListener('input', renderList);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && live) poll(false);
+        schedule();
+      });
+      listEl.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        const rows = [...listEl.querySelectorAll('.req')];
+        const index = rows.indexOf(document.activeElement);
+        const next = rows[index + (event.key === 'ArrowDown' ? 1 : -1)];
+        if (next) { event.preventDefault(); next.focus(); next.click(); }
+      });
+
+      const start = async () => {
+        await poll(true);
+        const wanted = new URLSearchParams(window.location.search).get('id');
+        if (wanted) await select(wanted);
+        else if (profiles.length) await select(profiles[0].id);
+        else renderDetail();
+        schedule();
+      };
+      start();
     })();
   </script>
-  <script src="{{BASE_URL}}/assets/toolbar.js" data-base-url="{{BASE_URL}}" defer></script>
 </body>
 </html>
