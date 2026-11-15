@@ -82,17 +82,23 @@ func (s *Store) List() []Profile {
 	return s.listLocked()
 }
 
-func (s *Store) Summaries(since string) []ProfileSummary {
+func (s *Store) Summaries(filter ProfileFilter) []ProfileSummary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	out := make([]ProfileSummary, 0, s.count)
 	for i := s.count - 1; i >= 0; i-- {
 		p := &s.items[s.slot(i)]
-		if since != "" && p.ID == since {
+		if filter.Since != "" && p.ID == filter.Since {
 			break
 		}
+		if !filter.Matches(p) {
+			continue
+		}
 		out = append(out, p.Summary())
+		if filter.Limit > 0 && len(out) == filter.Limit {
+			break
+		}
 	}
 
 	return out

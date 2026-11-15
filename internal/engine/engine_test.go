@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DarkoKlisuric/godebugbar/internal/collector"
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
@@ -150,6 +151,51 @@ func TestEngineListSince(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Path != "/two" {
 		t.Fatalf("expected only the newer profile, got %+v", list)
+	}
+}
+
+func TestEngineListFilters(t *testing.T) {
+	t.Parallel()
+
+	eng := newEngine(t, nil)
+	handler := eng.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			contextstate.RecorderFromContext(r.Context()).RecordQuery(contextstate.QueryEntry{SQL: "SELECT pg_sleep(1)", Duration: time.Second})
+		}
+		if r.URL.Path == "/broken" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	for _, path := range []string{"/ok", "/slow", "/broken"} {
+		serve(t, handler, http.MethodGet, path, nil)
+	}
+
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{query: "", want: []string{"/broken", "/slow", "/ok"}},
+		{query: "?q=pg_sleep", want: []string{"/slow"}},
+		{query: "?status=5", want: []string{"/broken"}},
+		{query: "?has=slow", want: []string{"/slow"}},
+		{query: "?has=error", want: []string{"/broken"}},
+		{query: "?limit=1", want: []string{"/broken"}},
+	}
+	for _, tc := range cases {
+		var list []engine.ProfileSummary
+		rec := serve(t, handler, http.MethodGet, "/_debugbar/api/profiles"+tc.query, nil)
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatalf("decode %s: %v", tc.query, err)
+		}
+		got := make([]string, 0, len(list))
+		for _, p := range list {
+			got = append(got, p.Path)
+		}
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("list%s = %v, want %v", tc.query, got, tc.want)
+		}
 	}
 }
 

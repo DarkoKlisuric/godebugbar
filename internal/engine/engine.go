@@ -385,8 +385,9 @@ func (e *Engine) RecordRequest(r *http.Request, profileID string, start time.Tim
 		sections = append(sections, *sec)
 	}
 
+	rec := contextstate.RecorderFromContext(r.Context())
 	var queries []contextstate.QueryEntry
-	if rec := contextstate.RecorderFromContext(r.Context()); rec != nil {
+	if rec != nil {
 		queries = rec.Queries()
 	}
 
@@ -400,8 +401,10 @@ func (e *Engine) RecordRequest(r *http.Request, profileID string, start time.Tim
 		DurationMs:  float64(duration.Microseconds()) / 1000.0,
 		CreatedAt:   start.UTC(),
 		Explainable: e.explainer != nil && hasExplainable(queries),
+		Stats:       NewProfileStats(rec),
 		Sections:    sections,
 		Queries:     queries,
+		Errors:      res.Errors,
 	}
 	e.store.Save(prof)
 
@@ -503,7 +506,7 @@ func (e *Engine) handleRenderAsset(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (e *Engine) handleListProfiles(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, e.store.Summaries(r.URL.Query().Get("since")))
+	writeJSON(w, http.StatusOK, e.store.Summaries(ParseProfileFilter(r.URL.Query())))
 }
 
 func (e *Engine) handleLatestProfile(w http.ResponseWriter, _ *http.Request) {

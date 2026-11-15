@@ -66,7 +66,7 @@ func TestStoreSummariesSince(t *testing.T) {
 		{since: "unknown", want: 4},
 	}
 	for _, tc := range cases {
-		if got := store.Summaries(tc.since); len(got) != tc.want {
+		if got := store.Summaries(engine.ProfileFilter{Since: tc.since}); len(got) != tc.want {
 			t.Errorf("Summaries(%q) = %d items, want %d", tc.since, len(got), tc.want)
 		}
 	}

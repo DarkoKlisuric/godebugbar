@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 	"github.com/DarkoKlisuric/godebugbar/internal/contract"
@@ -16,16 +15,6 @@ import (
 const queryCollectorName = "database"
 
 type QueryCollector struct{}
-
-type queryStats struct {
-	total      time.Duration
-	failed     int
-	slow       int
-	duplicates int
-	nPlusOne   int
-	byTemplate map[string]int
-	bySQL      map[string]int
-}
 
 func NewQueryCollector() *QueryCollector {
 	return &QueryCollector{}
@@ -46,18 +35,18 @@ func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *contra
 		dropped = recorder.Dropped().Queries
 	}
 
-	stats := analyzeQueries(queries, config)
-	rows, colors := queryRows(queries, stats, config)
+	stats := contextstate.AnalyzeQueries(queries, config)
+	rows, colors := queryRows(queries, stats)
 
-	totalMs := formatMs(stats.total)
+	totalMs := formatMs(stats.Total)
 	panel := contract.NewPanel("Database Queries").
 		AddMetrics(
 			contract.NewMetric("Total Queries", strconv.Itoa(len(queries)+dropped)),
 			contract.NewMetric("Total Duration", totalMs),
-			contract.NewMetric("Slow Queries", strconv.Itoa(stats.slow)),
-			contract.NewMetric("Duplicate Queries", strconv.Itoa(stats.duplicates)),
-			contract.NewMetric("N+1 Suspects", strconv.Itoa(stats.nPlusOne)),
-			contract.NewMetric("Failed Queries", strconv.Itoa(stats.failed)),
+			contract.NewMetric("Slow Queries", strconv.Itoa(stats.Slow)),
+			contract.NewMetric("Duplicate Queries", strconv.Itoa(stats.Duplicates)),
+			contract.NewMetric("N+1 Suspects", strconv.Itoa(stats.NPlusOne)),
+			contract.NewMetric("Failed Queries", strconv.Itoa(stats.Failed)),
 		).
 		AddColoredTable(
 			"Executed SQL Statements",
@@ -66,7 +55,7 @@ func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *contra
 			colors,
 		)
 
-	if repeated := repeatedTemplates(stats, config); len(repeated) > 0 {
+	if repeated := repeatedTemplates(stats); len(repeated) > 0 {
 		panel.AddTable("Repeated Statements", []string{"Count", "Statement"}, repeated)
 	}
 	if dropped > 0 {
@@ -82,9 +71,9 @@ func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *contra
 			Color: queryColor(stats, len(queries)),
 			Tooltip: map[string]string{
 				"Queries":      strconv.Itoa(len(queries) + dropped),
-				"Slow":         strconv.Itoa(stats.slow),
-				"Duplicates":   strconv.Itoa(stats.duplicates),
-				"N+1 suspects": strconv.Itoa(stats.nPlusOne),
+				"Slow":         strconv.Itoa(stats.Slow),
+				"Duplicates":   strconv.Itoa(stats.Duplicates),
+				"N+1 suspects": strconv.Itoa(stats.NPlusOne),
 				"Duration":     totalMs,
 			},
 		},
@@ -92,41 +81,11 @@ func (c *QueryCollector) Collect(ctx context.Context, _ *http.Request, _ *contra
 	)
 }
 
-func analyzeQueries(queries []contextstate.QueryEntry, config contextstate.Config) queryStats {
-	stats := queryStats{
-		byTemplate: make(map[string]int, len(queries)),
-		bySQL:      make(map[string]int, len(queries)),
-	}
-	for _, q := range queries {
-		stats.total += q.Duration
-		stats.byTemplate[templateOf(q)]++
-		stats.bySQL[q.SQL+"\x00"+strings.Join(q.Vars, "\x00")]++
-		if q.Error != "" {
-			stats.failed++
-		}
-		if q.Duration >= config.SlowQuery {
-			stats.slow++
-		}
-	}
-	for _, count := range stats.bySQL {
-		if count > 1 {
-			stats.duplicates += count - 1
-		}
-	}
-	for _, count := range stats.byTemplate {
-		if count >= config.NPlusOneThreshold {
-			stats.nPlusOne++
-		}
-	}
-
-	return stats
-}
-
-func queryRows(queries []contextstate.QueryEntry, stats queryStats, config contextstate.Config) ([][]string, []contract.BadgeColor) {
+func queryRows(queries []contextstate.QueryEntry, stats *contextstate.QueryAnalysis) ([][]string, []contract.BadgeColor) {
 	rows := make([][]string, 0, len(queries))
 	colors := make([]contract.BadgeColor, 0, len(queries))
 	for i, q := range queries {
-		status, color := queryStatus(q, stats, config)
+		status, color := queryStatus(q, stats)
 		rows = append(rows, []string{
 			strconv.Itoa(i + 1),
 			q.SQL,
@@ -142,22 +101,22 @@ func queryRows(queries []contextstate.QueryEntry, stats queryStats, config conte
 	return rows, colors
 }
 
-func queryStatus(q contextstate.QueryEntry, stats queryStats, config contextstate.Config) (string, contract.BadgeColor) {
+func queryStatus(q contextstate.QueryEntry, stats *contextstate.QueryAnalysis) (string, contract.BadgeColor) {
 	var labels []string
 	color := contract.ColorDefault
 	if q.Error != "" {
 		return q.Error, contract.ColorRed
 	}
-	if q.Duration >= config.SlowQuery {
+	if stats.IsSlow(q) {
 		labels = append(labels, "SLOW")
 		color = contract.ColorYellow
 	}
-	if stats.bySQL[q.SQL+"\x00"+strings.Join(q.Vars, "\x00")] > 1 {
+	if stats.IsDuplicate(q) {
 		labels = append(labels, "DUPLICATE")
 		color = contract.ColorYellow
 	}
-	if count := stats.byTemplate[templateOf(q)]; count >= config.NPlusOneThreshold {
-		labels = append(labels, fmt.Sprintf("N+1 (%d×)", count))
+	if stats.IsNPlusOne(q) {
+		labels = append(labels, fmt.Sprintf("N+1 (%d×)", stats.Repeats(q)))
 		color = contract.ColorYellow
 	}
 	if len(labels) == 0 {
@@ -167,16 +126,14 @@ func queryStatus(q contextstate.QueryEntry, stats queryStats, config contextstat
 	return strings.Join(labels, ", "), color
 }
 
-func repeatedTemplates(stats queryStats, config contextstate.Config) [][]string {
+func repeatedTemplates(stats *contextstate.QueryAnalysis) [][]string {
 	type repeated struct {
 		template string
 		count    int
 	}
 	var list []repeated
-	for template, count := range stats.byTemplate {
-		if count >= config.NPlusOneThreshold {
-			list = append(list, repeated{template: template, count: count})
-		}
+	for template, count := range stats.RepeatedTemplates() {
+		list = append(list, repeated{template: template, count: count})
 	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].count != list[j].count {
@@ -193,23 +150,15 @@ func repeatedTemplates(stats queryStats, config contextstate.Config) [][]string 
 	return rows
 }
 
-func queryColor(stats queryStats, count int) contract.BadgeColor {
+func queryColor(stats *contextstate.QueryAnalysis, count int) contract.BadgeColor {
 	switch {
-	case stats.failed > 0:
+	case stats.Failed > 0:
 		return contract.ColorRed
-	case stats.slow > 0 || stats.duplicates > 0 || stats.nPlusOne > 0:
+	case stats.Slow > 0 || stats.Duplicates > 0 || stats.NPlusOne > 0:
 		return contract.ColorYellow
 	case count > 0:
 		return contract.ColorGreen
 	default:
 		return contract.ColorDefault
 	}
-}
-
-func templateOf(q contextstate.QueryEntry) string {
-	if q.Template != "" {
-		return q.Template
-	}
-
-	return q.SQL
 }

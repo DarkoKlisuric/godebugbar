@@ -52,7 +52,7 @@ func (c *TimelineCollector) Collect(ctx context.Context, request *http.Request, 
 			color = contract.ColorYellow
 		}
 		events = append(events, contract.TimelineEvent{
-			Label: shorten(templateOf(q)), Category: categoryQuery,
+			Label: shorten(contextstate.TemplateOf(q)), Category: categoryQuery,
 			StartMs: offsetMs(start, q.StartedAt), DurationMs: msFloat(q.Duration), Color: color,
 		})
 	}
