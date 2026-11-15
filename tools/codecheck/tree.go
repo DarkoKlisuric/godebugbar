@@ -58,7 +58,7 @@ func checkFile(path string) ([]string, error) {
 		return nil, nil
 	}
 
-	problems := commentProblems(fileSet, file)
+	problems := commentProblems(fileSet, file, path)
 	problems = append(problems, receiverProblems(fileSet, file)...)
 	problems = append(problems, typeProblems(file, path)...)
 

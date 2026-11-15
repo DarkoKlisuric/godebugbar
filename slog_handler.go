@@ -7,16 +7,20 @@ import (
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 )
 
+// SlogHandler is a slog.Handler that copies records logged with a profiled
+// request's context into its profile, then passes them on.
 type SlogHandler struct {
 	next   slog.Handler
 	attrs  []slog.Attr
 	groups []string
 }
 
+// NewSlogHandler wraps next. next may be nil to record without logging.
 func NewSlogHandler(next slog.Handler) *SlogHandler {
 	return &SlogHandler{next: next}
 }
 
+// Enabled reports whether a record at level is handled.
 func (h *SlogHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	if contextstate.RecorderFromContext(ctx) != nil {
 		return true
@@ -25,6 +29,7 @@ func (h *SlogHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.next != nil && h.next.Enabled(ctx, level)
 }
 
+// Handle records the record on the request profile and forwards it.
 func (h *SlogHandler) Handle(ctx context.Context, record slog.Record) error {
 	if rec := contextstate.RecorderFromContext(ctx); rec != nil {
 		rec.AddLog(h.entry(record))
@@ -36,6 +41,7 @@ func (h *SlogHandler) Handle(ctx context.Context, record slog.Record) error {
 	return nil
 }
 
+// WithAttrs returns a handler that adds attrs to every record.
 func (h *SlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	out := h.clone()
 	out.attrs = append(out.attrs, h.qualify(attrs)...)
@@ -46,6 +52,7 @@ func (h *SlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return out
 }
 
+// WithGroup returns a handler that nests later attributes under name.
 func (h *SlogHandler) WithGroup(name string) slog.Handler {
 	out := h.clone()
 	out.groups = append(out.groups, name)

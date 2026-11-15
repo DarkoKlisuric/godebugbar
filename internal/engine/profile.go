@@ -17,8 +17,10 @@ type Profile struct {
 	DurationMs  float64                   `json:"duration_ms"`
 	CreatedAt   time.Time                 `json:"created_at"`
 	Explainable bool                      `json:"explainable,omitempty"`
+	Stats       ProfileStats              `json:"stats"`
 	Sections    []contract.Section        `json:"sections"`
 	Queries     []contextstate.QueryEntry `json:"-"`
+	Errors      []string                  `json:"-"`
 }
 
 type ProfileSummary struct {
@@ -29,6 +31,7 @@ type ProfileSummary struct {
 	Status     int                    `json:"status"`
 	DurationMs float64                `json:"duration_ms"`
 	CreatedAt  time.Time              `json:"created_at"`
+	Stats      ProfileStats           `json:"stats"`
 	Badges     []contract.ToolbarItem `json:"badges"`
 }
 
@@ -46,6 +49,7 @@ func (p *Profile) Summary() ProfileSummary {
 		Status:     p.Status,
 		DurationMs: p.DurationMs,
 		CreatedAt:  p.CreatedAt,
+		Stats:      p.Stats,
 		Badges:     badges,
 	}
 }

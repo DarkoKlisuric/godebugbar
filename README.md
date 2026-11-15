@@ -1,10 +1,10 @@
 # godebugbar
 
-A web debug toolbar and request profiler for Go, in the spirit of the Symfony Web Profiler and Laravel Debugbar. Supports `net/http`, Gin, GORM, pgx, any `database/sql` driver, `log/slog`, outgoing HTTP calls and custom collectors.
+Debug toolbar and request profiler for Go web apps.
 
-Every profiled request gets a profile: status, route, headers, body, SQL queries with duplicate, slow and N+1 detection, logs, outgoing HTTP calls, a timeline, panics and Go runtime metrics. Profiles are kept in memory and shown on a full-page profiler at `/_debugbar`, and optionally in a collapsible toolbar at the bottom of every HTML page or SPA.
+Every request gets a profile: status, headers, SQL queries, logs, outgoing calls, timeline, errors and runtime metrics. See them at `/_debugbar` or in a toolbar at the bottom of your pages.
 
-> **Development only.** Profiles contain request data and SQL values. Profiling is **off by default**; enable it explicitly, and keep it away from production traffic.
+For development only. Profiling is off by default.
 
 ## Install
 
@@ -12,159 +12,137 @@ Every profiled request gets a profile: status, route, headers, body, SQL queries
 go get github.com/DarkoKlisuric/godebugbar@latest
 ```
 
-## Quick start (`net/http`, chi, any router)
+## Use
 
 ```go
-bar := godebugbar.New(
-	godebugbar.WithEnabled(os.Getenv("APP_ENV") == "dev"),
-	godebugbar.WithHTMLInjection(), // server-rendered pages get the toolbar
-)
+bar := godebugbar.New(godebugbar.WithEnabled(true))
 http.ListenAndServe(":8080", bar.Middleware(mux))
 ```
 
 Open `http://localhost:8080/_debugbar`.
 
-## Gin + GORM JSON API with a separate SPA
+### Gin and GORM
 
 ```go
 router := gin.New()
-router.Use(gin.Recovery())
 
 godebugbar.New(
-	godebugbar.WithEnabled(cfg.Env == "dev"),
-	godebugbar.WithCORS("http://localhost:5173"),  // the SPA's origin
-	godebugbar.WithPublicURL("http://localhost:8080/_debugbar"),
-	godebugbar.WithExcludedPrefixes("/ws", "/events"), // WebSocket and SSE endpoints
-	ginadapter.Attach(router), // before any route is registered
+	godebugbar.WithEnabled(true),
+	ginadapter.Attach(router), // before any route
 	gormadapter.Attach(db),
 )
-
-router.GET("/users/:id", showUser) // routes come after Attach
 ```
 
-`ginadapter.Attach` panics if routes are already registered, because Gin applies middleware only to routes added later. It also sets `router.ContextWithFallback`, so `db.WithContext(c)` with a `*gin.Context` records queries.
+Queries are recorded when they run with the request context: `db.WithContext(ctx)`.
 
-In the SPA, load the toolbar in development only, before the app bundle so it can see every `fetch` and `XMLHttpRequest`:
+### Other databases
+
+| Driver | Setup |
+| :--- | :--- |
+| pgx v5 | `config.ConnConfig.Tracer = pgxadapter.NewTracer()` and `pgxadapter.Attach()` |
+| `database/sql` | `db, _ := sqladapter.Open("pgx", dsn)` and `sqladapter.Attach()` |
+
+### Toolbar
+
+Server-rendered pages: add `godebugbar.WithHTMLInjection()`.
+
+Single-page apps: load the script before your app bundle.
 
 ```html
 <script src="http://localhost:8080/_debugbar/assets/toolbar.js"
         data-base-url="http://localhost:8080/_debugbar"></script>
 ```
 
-The toolbar follows every API call that returns an `X-Debugbar-ID` header, keeps a history of the last 50, and links each one to the full profiler.
+On another origin, also pass `godebugbar.WithCORS("http://localhost:5173")`.
 
-## Database adapters
+The toolbar shows numbers for the current page: requests, time, queries, errors. They reset when you change page.
 
-| Adapter | Wiring |
-| :--- | :--- |
-| GORM | `gormadapter.Attach(db)`, or `db.Use(gormadapter.Plugin())` plus `godebugbar.WithQueryCollector()` when the DB is built elsewhere. Adds an EXPLAIN button for SELECT statements. |
-| pgx v5 | `config.ConnConfig.Tracer = pgxadapter.NewTracer()` and `pgxadapter.Attach()` |
-| `database/sql` | `db, err := sqladapter.Open("pgx", dsn)` and `sqladapter.Attach()` |
-
-Queries are recorded only when they run with the request context (`r.Context()`). Repository wrappers can be skipped when finding the caller with `WithSourceSkip("internal/platform/database")`.
-
-## Recording from your own code
+### Record your own data
 
 ```go
-req := godebugbar.FromContext(ctx) // nil-safe: a no-op outside a profiled request
+req := godebugbar.FromContext(ctx) // nil-safe
 req.AddError(err)
-req.Log(slog.LevelWarn, "cache miss", slog.String("key", key))
-defer req.StartSpan("render invoice")()
-req.AddQuery(godebugbar.Query{SQL: sql, Args: args, Duration: d})
+req.Log(slog.LevelWarn, "cache miss")
+defer req.StartSpan("render")()
 ```
 
-`Query` fields: `SQL` (as executed), `Template` (with placeholders; groups repeats for N+1 detection, defaults to `SQL`), `Args`, `RowsAffected`, `Duration`, `StartedAt` (defaults to now minus `Duration`), `Err`, and `Source` (`file:line`, found automatically when empty).
-
-Logs and outgoing calls can be captured automatically:
+Capture logs and outgoing calls:
 
 ```go
-logger := slog.New(godebugbar.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil)))
+logger := slog.New(godebugbar.NewSlogHandler(handler))
 client := &http.Client{Transport: godebugbar.NewTransport(nil)}
 ```
 
-## Custom collectors
-
-A `Collector` turns a finished request into a toolbar badge and an inspector tab. Panels hold metrics, key/value tables, tables (with per-row colors), code blocks and timelines.
+### Custom collector
 
 ```go
-type AuthCollector struct{}
+type UserCollector struct{}
 
-func (c *AuthCollector) Name() string { return "auth" }
+func (c *UserCollector) Name() string { return "user" }
 
-func (c *AuthCollector) Collect(ctx context.Context, _ *http.Request, _ *godebugbar.ResponseInfo) *godebugbar.Section {
-	user := userFromContext(ctx)
-	if user == nil {
-		return nil // leave the section out
-	}
-
-	panel := godebugbar.NewPanel("Authentication").
-		AddKeyValue("Principal", map[string]string{"id": user.ID, "role": user.Role})
-
-	return godebugbar.NewSection(godebugbar.ToolbarItem{Label: "User", Value: user.Role, Color: godebugbar.ColorGreen}, panel)
+func (c *UserCollector) Collect(ctx context.Context, _ *http.Request, _ *godebugbar.ResponseInfo) *godebugbar.Section {
+	panel := godebugbar.NewPanel("User").AddKeyValue("User", map[string]string{"id": userID(ctx)})
+	return godebugbar.NewSection(godebugbar.ToolbarItem{Label: "User", Value: userID(ctx)}, panel)
 }
 
-godebugbar.New(godebugbar.WithEnabled(true), godebugbar.WithCollectors(&AuthCollector{}))
+godebugbar.New(godebugbar.WithEnabled(true), godebugbar.WithCollectors(&UserCollector{}))
 ```
 
-Collector names must be unique; `New` panics when two different collectors share one.
+## Search
+
+The profiler page and `GET /_debugbar/api/profiles` filter by:
+
+| Parameter | Example | Matches |
+| :--- | :--- | :--- |
+| `q` | `q=users` | path, route, id, SQL, error text |
+| `method` | `method=POST` | HTTP method |
+| `status` | `status=5` or `status=404` | status class or exact status |
+| `min_ms` | `min_ms=100` | slower requests |
+| `has` | `has=error,slow,n_plus_one,duplicate,panic` | requests with these problems |
+| `limit` | `limit=20` | first N results |
+
+Searches are links: `/_debugbar?q=users&has=slow`.
 
 ## Options
 
-| Option | Description |
-| :--- | :--- |
-| `WithEnabled(bool)` | Turn profiling on. **Default `false`.** |
-| `WithAuthorizer(func(*http.Request) bool)` | Who may see profiles, the profiler UI and the `X-Debugbar-ID` header |
-| `WithCORS(...string)` | Origins allowed to call the profiler API and read `X-Debugbar-ID`; `*` is ignored |
-| `WithRedactedHeaders(...string)` | More headers to mask (Authorization, Cookie, Set-Cookie, API keys are masked by default) |
-| `WithRedactedQueryParams(...string)` | More query parameters to mask (token, password, api_key… by default) |
-| `WithRedactedBodyFields(...string)` | More JSON/form body fields to mask (password, token, secret… by default) |
-| `WithHiddenSQLValues()` | Record SQL with placeholders only, never bound values |
-| `WithRequestBody(maxBytes)` | Capture request bodies up to `maxBytes`, redacted |
-| `WithHTMLInjection()` | Inject the toolbar into `text/html` responses |
-| `WithMaxHTMLBuffer(bytes)` | Largest HTML response buffered for injection (default 4 MiB); larger ones stream untouched |
-| `WithDashboard(bool)` | Serve the full-page profiler at the prefix (default `true`) |
-| `WithServeEndpoints(bool)` | Let the middleware serve the profiler endpoints (default `true`); pair `false` with `Profiler.Handler()` on a private listener |
-| `WithPrefix(string)` | URL prefix of the profiler (default `/_debugbar`) |
-| `WithPublicURL(string)` | Absolute profiler URL the browser uses, for an SPA or a separate listener |
-| `WithStorageSize(int)` | Profiles kept in memory (default `50`) |
-| `WithPersistence(path)` | Keep profiles in a JSON file so they survive restarts (hot reload) |
-| `WithEntryLimit(int)` | Max queries, logs, spans, errors and calls per request (default `500` each) |
-| `WithSlowQueryThreshold(time.Duration)` | Mark queries as slow (default `100ms`) |
-| `WithNPlusOneThreshold(int)` | Flag a statement repeated this many times as N+1 (default `3`) |
-| `WithSourceSkip(...string)` | Frames to skip when finding a query's caller |
-| `WithExcludedPrefixes(...string)` / `WithExcludedPaths(...string)` | Paths not profiled |
-| `WithExcludedMethods(...string)` | Methods not profiled, in addition to `OPTIONS` |
-| `WithCollectors(...Collector)` | Register custom collectors |
-| `WithQueryCollector()` | Register the SQL collector (database adapters do it for you) |
-| `WithRequestCollector()` / `WithRuntimeCollector()` | Register built-ins after `WithoutDefaultCollectors()` |
-| `WithoutDefaultCollectors()` | Skip the request, runtime, log, HTTP-client and timeline collectors |
+| Option | Default | Does |
+| :--- | :--- | :--- |
+| `WithEnabled(bool)` | `false` | Turns profiling on |
+| `WithAuthorizer(func(*http.Request) bool)` | everyone | Who can see profiles |
+| `WithCORS(origins...)` | none | Origins allowed to read profiles |
+| `WithHTMLInjection()` | off | Adds the toolbar to HTML pages |
+| `WithRedactedHeaders(names...)` | credentials | More headers to mask |
+| `WithRedactedQueryParams(names...)` | token, password… | More query parameters to mask |
+| `WithRedactedBodyFields(names...)` | password, token… | More body fields to mask |
+| `WithHiddenSQLValues()` | off | Keeps SQL placeholders only |
+| `WithRequestBody(maxBytes)` | off | Captures request bodies |
+| `WithSlowQueryThreshold(d)` | `100ms` | Slow query limit |
+| `WithNPlusOneThreshold(n)` | `3` | Repeats that count as N+1 |
+| `WithSourceSkip(patterns...)` | none | Frames to skip when finding a query's caller |
+| `WithStorageSize(n)` | `50` | Profiles kept |
+| `WithPersistence(path)` | off | Keeps profiles across restarts |
+| `WithEntryLimit(n)` | `500` | Entries kept per request |
+| `WithPrefix(prefix)` | `/_debugbar` | Profiler URL prefix |
+| `WithPublicURL(url)` | prefix | Profiler URL the browser uses |
+| `WithServeEndpoints(bool)` | `true` | Serve the profiler from the middleware |
+| `WithDashboard(bool)` | `true` | Serve the profiler page |
+| `WithMaxHTMLBuffer(bytes)` | 4 MiB | Largest page that gets the toolbar |
+| `WithExcludedPaths(paths...)` | none | Paths not profiled |
+| `WithExcludedPrefixes(prefixes...)` | none | Path prefixes not profiled |
+| `WithExcludedMethods(methods...)` | `OPTIONS` | Methods not profiled |
+| `WithCollectors(c...)` | none | Custom collectors |
+| `WithQueryCollector()` | via adapters | SQL collector |
+| `WithoutDefaultCollectors()` | off | Drops the built-in collectors |
 
-## Serving the profiler on a private port
-
-```go
-bar := godebugbar.New(
-	godebugbar.WithEnabled(true),
-	godebugbar.WithServeEndpoints(false),
-	godebugbar.WithPublicURL("http://localhost:9999/_debugbar"),
-)
-go http.ListenAndServe("127.0.0.1:9999", bar.Handler())
-http.ListenAndServe(":8080", bar.Middleware(mux))
-```
-
-## The UI
-
-- **Toolbar**: one badge per collector, colored by severity; click for a resizable panel. Follows every new request and refreshes an open panel (toggle “Follow”); after you pick an older request from the history it stays there and shows “N new” until you click it. It also follows SPA navigation: the bar shows the current page and how many API requests it made, and says when a page was served from the app's cache without reaching the server, keeps a 50-entry history, links to the full profiler, minimizes to a corner button and remembers its state in `localStorage`. Esc closes the panel.
-- **Profiler** (`/_debugbar`): request list with filter, live updates that pause on demand and while the tab is hidden, deep links (`/_debugbar?id=<profile id>`), sortable and filterable tables, highlighted slow, duplicate and N+1 queries, EXPLAIN for SELECT statements (GORM), timeline, Copy as cURL and JSON export.
+Run the profiler on a private port with `bar.Handler()`, `WithServeEndpoints(false)` and `WithPublicURL(...)`.
 
 ## Development
 
 ```bash
-make test               # run unit tests with -race
-make test-integration   # run PostgreSQL integration tests (DATABASE_URL)
-make lint               # run golangci-lint and codecheck
-make fmt                # format code with gofumpt and goimports
+make test               # unit tests with -race
+make test-integration   # PostgreSQL tests (DATABASE_URL)
+make lint               # golangci-lint and codecheck
+make fmt                # gofumpt and goimports
 ```
 
-## Versions and Releases
-
-Releases follow `CONTRIBUTING.md`. Merging a `release-please` pull request tags `main` (`v0.2.0` for `feat:`, `v0.1.1` for `fix:` / `refactor:`) and publishes a GitHub Release.
+Releases follow `CONTRIBUTING.md`.

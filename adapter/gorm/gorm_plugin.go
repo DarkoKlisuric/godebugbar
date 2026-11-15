@@ -23,6 +23,9 @@ const (
 
 type gormPlugin struct{}
 
+// Attach registers the query collector, installs Plugin on db and enables
+// EXPLAIN for recorded SELECT statements. It panics when the plugin cannot
+// be registered.
 func Attach(db *gorm.DB) godebugbar.Option {
 	return func(e *engine.Engine) {
 		if db == nil {
@@ -36,6 +39,8 @@ func Attach(db *gorm.DB) godebugbar.Option {
 	}
 }
 
+// Plugin returns the GORM plugin that records queries, for a *gorm.DB built
+// apart from the Profiler. Pair it with godebugbar.WithQueryCollector.
 func Plugin() gorm.Plugin {
 	return &gormPlugin{}
 }

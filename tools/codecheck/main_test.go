@@ -24,7 +24,7 @@ func TestRun(t *testing.T) {
 		{
 			name: "every problem is reported once",
 			files: map[string]string{
-				"collector/queries.go": "package collector\n\n// QueryCollector collects queries.\ntype QueryCollector struct{}\n\nfunc (c QueryCollector) Name() string { return \"\" }\n",
+				"internal/collector/queries.go": "package collector\n\n// QueryCollector collects queries.\ntype QueryCollector struct{}\n\nfunc (c QueryCollector) Name() string { return \"\" }\n",
 			},
 			wantFound: 4,
 			wantOut:   []string{"missing README.md", "comment not allowed", "pointer receiver", "name the file after its main type (query_collector.go)"},

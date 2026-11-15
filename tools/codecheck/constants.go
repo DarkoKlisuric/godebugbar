@@ -5,6 +5,8 @@ const (
 	testFileSuffix  = "_test.go"
 	directivePrefix = "//go:"
 	readmeFile      = "README.md"
+	internalDir     = "internal"
+	toolsDir        = "tools"
 
 	exitProblems = 1
 	exitError    = 2
