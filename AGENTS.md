@@ -80,7 +80,7 @@ When adding a collector or adapter:
 - **Singular names**: Package, file, and type names use the singular (`adapter`, `query_collector.go`, `QueryCollector`). Do not create catch-all packages such as `util`, `utils`, `common`, `models`, or `types`.
 - **One concept per file**: Name every file in `snake_case` after its main type (`Profile` in `profile.go`, `gormPlugin` in `gorm_plugin.go`). Small helper types that belong to that concept live in the same file.
 - **Pointer receivers**: Every method uses a pointer receiver (`func (p *Profiler) Middleware(...)`).
-- **No comments in Go code**: Do not write comments in `.go` files (including `_test.go` files). Only `//go:` compiler directives (`//go:embed`, `//go:generate`, `//go:build`) are permitted. Explain architecture, usage, and design in each directory's `README.md`.
+- **Comments**: Exported declarations of the public API (the root package and `adapter/*`, outside `internal/`) carry Go doc comments, short and to the point, so pkg.go.dev documents them. Everything else has no comments: internal packages, unexported code, function bodies, tests and tools. `//go:` directives are always allowed. Explain architecture and design in each directory's `README.md`.
 - **Context propagation**: Functions performing I/O or recording request state take `ctx context.Context` as their first parameter. Never store a `context.Context` inside a struct.
 
 ### Testing Conventions

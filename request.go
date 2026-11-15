@@ -9,10 +9,14 @@ import (
 	"github.com/DarkoKlisuric/godebugbar/internal/contextstate"
 )
 
+// Request records data into the profile of the current HTTP request. All
+// methods are no-ops on a nil *Request.
 type Request struct {
 	rec *contextstate.Recorder
 }
 
+// FromContext returns the recorder of the request ctx belongs to, or nil
+// when the request is not profiled.
 func FromContext(ctx context.Context) *Request {
 	rec := contextstate.RecorderFromContext(ctx)
 	if rec == nil {
@@ -22,6 +26,7 @@ func FromContext(ctx context.Context) *Request {
 	return &Request{rec: rec}
 }
 
+// AddQuery records a database query. Database adapters call it for you.
 func (r *Request) AddQuery(q Query) {
 	if r == nil {
 		return
@@ -29,6 +34,7 @@ func (r *Request) AddQuery(q Query) {
 	r.rec.RecordQuery(q.entry())
 }
 
+// AddError records an error.
 func (r *Request) AddError(err error) {
 	if r == nil || err == nil {
 		return
@@ -36,6 +42,7 @@ func (r *Request) AddError(err error) {
 	r.rec.AddError(err.Error())
 }
 
+// Log records a log message. NewSlogHandler does this for slog records.
 func (r *Request) Log(level slog.Level, msg string, attrs ...slog.Attr) {
 	if r == nil {
 		return
@@ -52,6 +59,7 @@ func (r *Request) Log(level slog.Level, msg string, attrs ...slog.Attr) {
 	})
 }
 
+// StartSpan starts a timeline span. Call the returned function to end it.
 func (r *Request) StartSpan(name string) func() {
 	if r == nil {
 		return func() {}
@@ -63,6 +71,7 @@ func (r *Request) StartSpan(name string) func() {
 	}
 }
 
+// SetRoute records the matched route pattern, such as "/users/{id}".
 func (r *Request) SetRoute(route string) {
 	if r == nil {
 		return

@@ -21,6 +21,9 @@ type ginAdapter struct {
 	eng *engine.Engine
 }
 
+// Attach profiles every request served by router. Call it before registering
+// routes; it panics when router already has routes. It also sets
+// router.ContextWithFallback so a *gin.Context reaches the database adapters.
 func Attach(router *gin.Engine) godebugbar.Option {
 	return func(e *engine.Engine) {
 		if router == nil {

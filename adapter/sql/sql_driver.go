@@ -10,16 +10,20 @@ import (
 	"github.com/DarkoKlisuric/godebugbar/internal/engine"
 )
 
+// SQLDriver wraps a database/sql driver and records statements run with a
+// profiled request's context.
 type SQLDriver struct {
 	parent driver.Driver
 }
 
+// Attach registers the query collector.
 func Attach() godebugbar.Option {
 	return func(e *engine.Engine) {
 		e.AddCollectors(collector.NewQueryCollector())
 	}
 }
 
+// Open works like sql.Open with the named driver wrapped.
 func Open(driverName, dsn string) (*sql.DB, error) {
 	probe, err := sql.Open(driverName, dsn)
 	if err != nil {
@@ -38,14 +42,17 @@ func Open(driverName, dsn string) (*sql.DB, error) {
 	return sql.OpenDB(connector), nil
 }
 
+// Wrap returns d wrapped, for sql.Register.
 func Wrap(d driver.Driver) *SQLDriver {
 	return &SQLDriver{parent: d}
 }
 
+// WrapConnector returns c wrapped, for sql.OpenDB.
 func WrapConnector(c driver.Connector) driver.Connector {
 	return &sqlConnector{parent: c, driver: &SQLDriver{parent: c.Driver()}}
 }
 
+// Open opens a connection through the wrapped driver.
 func (d *SQLDriver) Open(name string) (driver.Conn, error) {
 	c, err := d.parent.Open(name)
 	if err != nil {
@@ -55,6 +62,7 @@ func (d *SQLDriver) Open(name string) (driver.Conn, error) {
 	return &sqlConn{parent: c}, nil
 }
 
+// OpenConnector returns a connector through the wrapped driver.
 func (d *SQLDriver) OpenConnector(name string) (driver.Connector, error) {
 	if dc, ok := d.parent.(driver.DriverContext); ok {
 		c, err := dc.OpenConnector(name)
