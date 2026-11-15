@@ -7,7 +7,7 @@
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--gdb-bg); color: var(--gdb-text); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column; background: var(--gdb-bg); color: var(--gdb-text); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
     a { color: var(--gdb-accent); }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--gdb-panel); border-bottom: 1px solid var(--gdb-border); flex-wrap: wrap; }
     .brand { font-size: 15px; font-weight: 700; color: var(--gdb-accent); }
@@ -17,8 +17,13 @@
     button:hover, button:focus-visible, input:focus-visible { border-color: var(--gdb-accent); outline: none; }
     button[aria-pressed="true"] { border-color: var(--gdb-accent); background: #1e3a5f; }
     .conn { font-size: 11px; color: var(--gdb-muted); }
+    #minms { width: 80px; }
+    .flags { display: inline-flex; gap: 4px; }
+    .chips { display: inline-flex; gap: 4px; }
+    .chip { white-space: nowrap; font-size: 10px; padding: 0 5px; border-radius: 3px; background: #713f12; color: #fde047; }
+    .chip.red { background: #7f1d1d; color: #fca5a5; }
     .conn.error { color: var(--gdb-red); }
-    .layout { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; height: calc(100vh - 53px); }
+    .layout { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; flex: 1; min-height: 0; }
     .sidebar { border-right: 1px solid var(--gdb-border); overflow-y: auto; background: var(--gdb-bg); }
     .req { padding: 9px 12px; border-bottom: 1px solid var(--gdb-border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; background: none; border-radius: 0; border-width: 0 0 1px 0; }
     .req:hover, .req.active, .req:focus-visible { background: #162238; }
@@ -53,7 +58,16 @@
   <header>
     <div class="brand">GoDebugBar Profiler</div>
     <div class="controls">
-      <input id="filter" type="search" placeholder="Filter path, method or status…" aria-label="Filter requests" />
+      <input id="filter" type="search" placeholder="Search path, route, SQL, error or id…" aria-label="Search requests" />
+      <select id="method" aria-label="Method"><option value="">Any method</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
+      <select id="status" aria-label="Status"><option value="">Any status</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select>
+      <input id="minms" type="number" min="0" step="10" placeholder="min ms" aria-label="Minimum duration in ms" />
+      <span class="flags" role="group" aria-label="Only requests with">
+        <button type="button" class="flag" data-flag="error" aria-pressed="false">Errors</button>
+        <button type="button" class="flag" data-flag="slow" aria-pressed="false">Slow SQL</button>
+        <button type="button" class="flag" data-flag="n_plus_one" aria-pressed="false">N+1</button>
+        <button type="button" class="flag" data-flag="duplicate" aria-pressed="false">Duplicates</button>
+      </span>
       <button id="live" type="button" aria-pressed="true" title="Pause or resume auto-refresh">Live</button>
       <button id="refresh" type="button">Refresh</button>
       <span id="conn" class="conn" role="status"></span>
@@ -96,18 +110,53 @@
         connEl.classList.toggle('error', !!error);
       };
 
-      const matches = (p, q) => !q || [p.method, p.path, p.route, String(p.status), p.id]
-        .some((v) => v && String(v).toLowerCase().includes(q));
+      const methodEl = document.getElementById('method');
+      const statusEl = document.getElementById('status');
+      const minMsEl = document.getElementById('minms');
+      const flagEls = [...document.querySelectorAll('.flag')];
+
+      const filterParams = () => {
+        const params = new URLSearchParams();
+        if (filterEl.value.trim()) params.set('q', filterEl.value.trim());
+        if (methodEl.value) params.set('method', methodEl.value);
+        if (statusEl.value) params.set('status', statusEl.value);
+        if (minMsEl.value) params.set('min_ms', minMsEl.value);
+        const flags = flagEls.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.flag);
+        if (flags.length) params.set('has', flags.join(','));
+        return params;
+      };
+
+      const restoreFilters = () => {
+        const params = new URLSearchParams(window.location.search);
+        filterEl.value = params.get('q') || '';
+        methodEl.value = params.get('method') || '';
+        statusEl.value = params.get('status') || '';
+        minMsEl.value = params.get('min_ms') || '';
+        const flags = (params.get('has') || '').split(',');
+        flagEls.forEach((b) => b.setAttribute('aria-pressed', String(flags.includes(b.dataset.flag))));
+      };
+
+      const syncURL = () => {
+        const url = new URL(window.location.href);
+        ['q', 'method', 'status', 'min_ms', 'has'].forEach((key) => url.searchParams.delete(key));
+        filterParams().forEach((value, key) => url.searchParams.set(key, value));
+        window.history.replaceState(null, '', url);
+      };
+
+      const flagChips = (s) => [
+        s.panic || s.errors || s.failed_queries ? h('span', { className: 'chip red', text: s.panic ? 'panic' : 'error' }) : null,
+        s.slow_queries ? h('span', { className: 'chip', text: `${s.slow_queries} slow` }) : null,
+        s.n_plus_one ? h('span', { className: 'chip', text: 'N+1' }) : null,
+        s.duplicate_queries ? h('span', { className: 'chip', text: 'dup' }) : null,
+      ];
 
       const renderList = () => {
-        const q = filterEl.value.trim().toLowerCase();
-        const filtered = profiles.filter((p) => matches(p, q));
         listEl.textContent = '';
-        if (!filtered.length) {
-          listEl.appendChild(h('div', { className: 'gdb-empty', text: profiles.length ? 'No request matches the filter.' : 'No recorded requests yet.' }));
+        if (!profiles.length) {
+          listEl.appendChild(h('div', { className: 'gdb-empty', text: filterParams().toString() ? 'No request matches the search.' : 'No recorded requests yet.' }));
           return;
         }
-        filtered.forEach((p) => {
+        profiles.forEach((p) => {
           const row = h('button', {
             className: `req${selected && selected.id === p.id ? ' active' : ''}`,
             attrs: { type: 'button', 'aria-current': selected && selected.id === p.id ? 'true' : false, title: p.route || p.path },
@@ -117,7 +166,8 @@
             h('span', { className: 'req-path' }, h('span', { className: 'method', text: p.method }), p.path),
             h('span', { className: `status ${R.statusClass(p.status)}`, text: p.status })),
           h('div', { className: 'req-meta' },
-            h('span', { text: `${R.formatMs(p.duration_ms)} · ${new Date(p.created_at).toLocaleTimeString()}` }),
+            h('span', { text: `${R.formatMs(p.duration_ms)} · ${(p.stats && p.stats.queries) || 0} queries · ${new Date(p.created_at).toLocaleTimeString()}` }),
+            h('span', { className: 'chips' }, flagChips(p.stats || {})),
             h('span', { className: 'dots' }, (p.badges || []).map((b) => h('span', { className: `dot ${b.color || ''}`, attrs: { title: `${b.label}: ${b.value}` } })))));
           listEl.appendChild(row);
         });
@@ -198,8 +248,10 @@
 
       const poll = async (full) => {
         try {
-          const since = !full && profiles.length ? `?since=${encodeURIComponent(profiles[0].id)}` : '';
-          const fresh = await R.fetchJSON(`${baseUrl}/api/profiles${since}`);
+          const params = filterParams();
+          if (!full && profiles.length) params.set('since', profiles[0].id);
+          const query = params.toString();
+          const fresh = await R.fetchJSON(`${baseUrl}/api/profiles${query ? `?${query}` : ''}`);
           profiles = full ? fresh : [...fresh, ...profiles].slice(0, MAX_PROFILES);
           setConnection(null);
           renderList();
@@ -222,7 +274,17 @@
         schedule();
       });
       refreshBtn.addEventListener('click', () => poll(true));
-      filterEl.addEventListener('input', renderList);
+      let searchTimer = null;
+      const search = () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => { syncURL(); poll(true); }, 250);
+      };
+      [filterEl, minMsEl].forEach((el) => el.addEventListener('input', search));
+      [methodEl, statusEl].forEach((el) => el.addEventListener('change', search));
+      flagEls.forEach((b) => b.addEventListener('click', () => {
+        b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+        search();
+      }));
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden && live) poll(false);
         schedule();
@@ -236,6 +298,7 @@
       });
 
       const start = async () => {
+        restoreFilters();
         await poll(true);
         const wanted = new URLSearchParams(window.location.search).get('id');
         if (wanted) await select(wanted);
