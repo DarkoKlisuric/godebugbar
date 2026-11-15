@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0](https://github.com/DarkoKlisuric/godebugbar/compare/v1.0.1...v1.1.0) (2026-11-15)
+
+
+### Features
+
+* add per-request stats and search to the profile list ([17530ec](https://github.com/DarkoKlisuric/godebugbar/commit/17530ecebd2e2d34cf1f103c63af58ecb4715751))
+* per-page toolbar numbers, profile search and godoc ([24ade83](https://github.com/DarkoKlisuric/godebugbar/commit/24ade83e19ee5e20a4229634e9cd0e77e0e521e0))
+* **ui:** show per-page numbers in the toolbar and search in the profiler ([50627fc](https://github.com/DarkoKlisuric/godebugbar/commit/50627fc1097bb8d07804211aab3446d3d86a9b73))
+
 ## [1.0.1](https://github.com/DarkoKlisuric/godebugbar/compare/v1.0.0...v1.0.1) (2026-11-14)
 
 
