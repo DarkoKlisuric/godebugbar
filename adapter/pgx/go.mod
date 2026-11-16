@@ -3,7 +3,7 @@ module github.com/DarkoKlisuric/godebugbar/adapter/pgx
 go 1.25.0
 
 require (
-	github.com/DarkoKlisuric/godebugbar v1.1.0 // x-release-please-version
+	github.com/DarkoKlisuric/godebugbar v1.2.0 // x-release-please-version
 	github.com/jackc/pgx/v5 v5.10.0
 )
 
