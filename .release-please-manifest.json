@@ -1,7 +1,7 @@
 {
-  ".": "1.2.0",
-  "adapter/gin": "1.2.0",
-  "adapter/gorm": "1.2.0",
-  "adapter/pgx": "1.2.0",
-  "adapter/sql": "1.2.0"
+  ".": "1.2.1",
+  "adapter/gin": "1.2.1",
+  "adapter/gorm": "1.2.1",
+  "adapter/pgx": "1.2.1",
+  "adapter/sql": "1.2.1"
 }

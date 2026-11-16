@@ -3,7 +3,7 @@ module github.com/DarkoKlisuric/godebugbar/adapter/gorm
 go 1.25.0
 
 require (
-	github.com/DarkoKlisuric/godebugbar v1.2.0 // x-release-please-version
+	github.com/DarkoKlisuric/godebugbar v1.2.1 // x-release-please-version
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
 )
