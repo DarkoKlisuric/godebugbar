@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/DarkoKlisuric/godebugbar/compare/adapter/sql/v1.2.0...adapter/sql/v1.2.1) (2026-11-16)
+
+
+### docs
+
+* add runnable godoc examples ([b35b368](https://github.com/DarkoKlisuric/godebugbar/commit/b35b368501a51777ab28674d662d64f7b4b607ae))
+
 ## [1.2.0](https://github.com/DarkoKlisuric/godebugbar/compare/adapter/sql/v1.1.0...adapter/sql/v1.2.0) (2026-11-16)
 
 
