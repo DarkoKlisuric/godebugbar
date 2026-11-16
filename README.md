@@ -1,16 +1,34 @@
 # godebugbar
 
-Debug toolbar and request profiler for Go web apps.
+[![Go Reference](https://pkg.go.dev/badge/github.com/DarkoKlisuric/godebugbar.svg)](https://pkg.go.dev/github.com/DarkoKlisuric/godebugbar)
+[![Go Report Card](https://goreportcard.com/badge/github.com/DarkoKlisuric/godebugbar)](https://goreportcard.com/report/github.com/DarkoKlisuric/godebugbar)
+[![CI](https://github.com/DarkoKlisuric/godebugbar/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/DarkoKlisuric/godebugbar/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/DarkoKlisuric/godebugbar?sort=semver&filter=v*&label=release)](https://github.com/DarkoKlisuric/godebugbar/releases)
 
-Every request gets a profile: status, headers, SQL queries, logs, outgoing calls, timeline, errors and runtime metrics. See them at `/_debugbar` or in a toolbar at the bottom of your pages.
+godebugbar is a debug toolbar and request profiler for Go web apps. It shows SQL queries with N+1 detection, logs, outgoing HTTP calls and a timeline for every request. Works with net/http, Gin, GORM, pgx and database/sql.
+
+![godebugbar profiler](docs/screenshot.png)
 
 For development only. Profiling is off by default.
+
+## Features
+
+- SQL query profiler with caller file and line
+- N+1 and duplicate query detection
+- Slow queries and EXPLAIN for PostgreSQL
+- Request and response inspector: headers, body, status, route
+- `slog` logs and outgoing HTTP calls per request
+- Timeline with your own spans
+- Toolbar for server-rendered pages and SPAs
+- Custom collectors
 
 ## Install
 
 ```bash
 go get github.com/DarkoKlisuric/godebugbar@latest
 ```
+
+Adapters for Gin, GORM, pgx and `database/sql` are separate modules. Add only the ones you use.
 
 ## Use
 
@@ -22,6 +40,10 @@ http.ListenAndServe(":8080", bar.Middleware(mux))
 Open `http://localhost:8080/_debugbar`.
 
 ### Gin and GORM
+
+```bash
+go get github.com/DarkoKlisuric/godebugbar/adapter/gin@latest github.com/DarkoKlisuric/godebugbar/adapter/gorm@latest
+```
 
 ```go
 router := gin.New()
@@ -36,6 +58,11 @@ godebugbar.New(
 Queries are recorded when they run with the request context: `db.WithContext(ctx)`.
 
 ### Other databases
+
+```bash
+go get github.com/DarkoKlisuric/godebugbar/adapter/pgx@latest   # pgx v5
+go get github.com/DarkoKlisuric/godebugbar/adapter/sql@latest   # database/sql
+```
 
 | Driver | Setup |
 | :--- | :--- |
@@ -139,10 +166,11 @@ Run the profiler on a private port with `bar.Handler()`, `WithServeEndpoints(fal
 ## Development
 
 ```bash
-make test               # unit tests with -race
+make test               # unit tests with -race, every module
 make test-integration   # PostgreSQL tests (DATABASE_URL)
 make lint               # golangci-lint and codecheck
 make fmt                # gofumpt and goimports
+make tidy               # go mod tidy in every module
 ```
 
 Releases follow `CONTRIBUTING.md`.

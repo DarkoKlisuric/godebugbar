@@ -2,6 +2,12 @@
 
 `adapter/pgx` records queries run through `github.com/jackc/pgx/v5` with a profiled request's context.
 
+## Install
+
+```bash
+go get github.com/DarkoKlisuric/godebugbar/adapter/pgx@latest
+```
+
 ## Usage
 
 ```go
