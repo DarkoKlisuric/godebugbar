@@ -9,12 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/DarkoKlisuric/godebugbar"
-	ginadapter "github.com/DarkoKlisuric/godebugbar/adapter/gin"
 	gormadapter "github.com/DarkoKlisuric/godebugbar/adapter/gorm"
 )
 
@@ -26,7 +24,6 @@ type postgresAuditItem struct {
 
 func TestGormPluginPostgresIntegration(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -48,28 +45,25 @@ func TestGormPluginPostgresIntegration(t *testing.T) {
 		_ = scopedDB.Migrator().DropTable(&postgresAuditItem{})
 	})
 
-	router := gin.New()
-	godebugbar.New(
+	bar := godebugbar.New(
 		godebugbar.WithEnabled(true),
-		ginadapter.Attach(router),
 		gormadapter.Attach(db),
 	)
-
-	router.POST("/audit", func(c *gin.Context) {
-		reqDB := db.WithContext(c.Request.Context()).Table(tableName)
+	router := bar.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqDB := db.WithContext(r.Context()).Table(tableName)
 		item := postgresAuditItem{Title: "postgres-check"}
 		if err := reqDB.Create(&item).Error; err != nil {
-			c.Status(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		var out []postgresAuditItem
 		if err := reqDB.Where("title = ?", "postgres-check").Find(&out).Error; err != nil {
-			c.Status(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		c.Status(http.StatusCreated)
-	})
+		w.WriteHeader(http.StatusCreated)
+	}))
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/audit", nil)
 	rec := httptest.NewRecorder()
