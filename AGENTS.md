@@ -11,6 +11,8 @@ This is the code base of `godebugbar`, a web debug toolbar and request profiler 
   - `internal/redact/` - Masking of headers, query parameters, URLs and request bodies
   - `internal/ui/` - Embedded renderer, toolbar and dashboard assets
 - **Adapters** (`adapter/`): `adapter/gin` (`ginadapter.Attach`), `adapter/gorm` (`gormadapter.Attach`, `gormadapter.Plugin`), `adapter/pgx` (`pgxadapter.NewTracer`, `pgxadapter.Attach`), `adapter/sql` (`sqladapter.Open`, `Wrap`, `WrapConnector`, `Attach`)
+
+Each adapter is its own Go module (`github.com/DarkoKlisuric/godebugbar/adapter/<name>`), so the core module depends on the standard library only and users fetch just the adapters they use. The committed `go.work` builds every module against the local core. Adapters may import the core's `internal/` packages because they live under the same path. Adapter tests must not import other adapters. release-please releases all modules together with one version: the core is tagged `vX.Y.Z`, each adapter `adapter/<name>/vX.Y.Z`, and the release pull request raises the core version each adapter's `go.mod` requires (`// x-release-please-version`).
 - **Codecheck** (`tools/codecheck/`) - AST linter enforcing project code conventions
 
 `Option` is `func(*engine.Engine)`: only packages inside this module can write options, which keeps adapters bound to the engine without a registry.
@@ -19,11 +21,10 @@ This is the code base of `godebugbar`, a web debug toolbar and request profiler 
 
 ### Running Tests
 
-Run all unit tests across the repository:
+Run all unit tests across every module:
 
 ```bash
 make test
-go test -race ./...
 ```
 
 Run tests in a specific package or filter by test name:
@@ -45,13 +46,18 @@ Run both `golangci-lint` and `tools/codecheck`:
 
 ```bash
 make lint
-go run ./tools/codecheck .
 ```
 
 Format code with `gofumpt` and `goimports`:
 
 ```bash
 make fmt
+```
+
+Tidy every module (adapters are tidied against the local core):
+
+```bash
+make tidy
 ```
 
 ### Adding a New Collector or Adapter
@@ -68,7 +74,7 @@ type Collector interface {
 When adding a collector or adapter:
 
 1. Built-in collectors belong in `internal/collector/<name>_collector.go` with a matching `_test.go` file.
-2. Third-party framework or library adapters belong in `adapter/<name>/` and expose only `Attach(...) godebugbar.Option`, keeping adapter structs unexported.
+2. Third-party framework or library adapters belong in `adapter/<name>/` as their own module and expose only `Attach(...) godebugbar.Option`, keeping adapter structs unexported. Add the new module to `go.work`, `ADAPTERS` in the `Makefile`, and `release-please-config.json` (package, linked-versions component) and `.release-please-manifest.json`.
 3. Record per-request events into `context.Context` via `contextstate.RecorderFromContext(ctx)` (or the public `godebugbar.FromContext(ctx)`) during request execution. Never record outside a profiled request.
 4. Build the toolbar summary (`ToolbarItem`) and detailed view (`Panel`) in `Collect`.
 5. Document every Go package directory in its `README.md`.

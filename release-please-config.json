@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "include-component-in-tag": false,
+  "bootstrap-sha": "6dd5d99ba4af744d033eb9d8236ce3eb0fda0b75",
   "bump-minor-pre-major": true,
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
@@ -10,7 +10,44 @@
   ],
   "packages": {
     ".": {
-      "release-type": "go"
+      "release-type": "go",
+      "component": "godebugbar",
+      "include-component-in-tag": false
+    },
+    "adapter/gin": {
+      "release-type": "go",
+      "component": "adapter/gin",
+      "include-component-in-tag": true,
+      "tag-separator": "/",
+      "extra-files": ["go.mod"]
+    },
+    "adapter/gorm": {
+      "release-type": "go",
+      "component": "adapter/gorm",
+      "include-component-in-tag": true,
+      "tag-separator": "/",
+      "extra-files": ["go.mod"]
+    },
+    "adapter/pgx": {
+      "release-type": "go",
+      "component": "adapter/pgx",
+      "include-component-in-tag": true,
+      "tag-separator": "/",
+      "extra-files": ["go.mod"]
+    },
+    "adapter/sql": {
+      "release-type": "go",
+      "component": "adapter/sql",
+      "include-component-in-tag": true,
+      "tag-separator": "/",
+      "extra-files": ["go.mod"]
     }
-  }
+  },
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "godebugbar",
+      "components": ["godebugbar", "adapter/gin", "adapter/gorm", "adapter/pgx", "adapter/sql"]
+    }
+  ]
 }
