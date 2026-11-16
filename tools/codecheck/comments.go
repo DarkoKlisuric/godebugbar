@@ -17,7 +17,7 @@ func commentProblems(fileSet *token.FileSet, file *ast.File, path string) []stri
 
 	var problems []string
 	for _, group := range file.Comments {
-		if allowed[group] {
+		if allowed[group] || isExampleOutput(group, path) {
 			continue
 		}
 		for _, comment := range group.List {
@@ -30,6 +30,17 @@ func commentProblems(fileSet *token.FileSet, file *ast.File, path string) []stri
 	}
 
 	return problems
+}
+
+func isExampleOutput(group *ast.CommentGroup, path string) bool {
+	if !strings.HasSuffix(path, testFileSuffix) {
+		return false
+	}
+	first := strings.TrimSpace(strings.TrimPrefix(group.List[0].Text, "//"))
+
+	return slices.ContainsFunc(exampleOutputMarkers, func(marker string) bool {
+		return strings.HasPrefix(first, marker)
+	})
 }
 
 func isPublicAPIFile(path string) bool {

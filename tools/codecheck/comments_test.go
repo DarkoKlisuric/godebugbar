@@ -25,6 +25,10 @@ func TestCommentProblems(t *testing.T) {
 		{name: "inline comment", path: "p.go", source: "package p\n\nvar X = 1 // one\n", want: []string{"comment not allowed"}},
 		{name: "doc comment in internal code", path: "internal/engine/e.go", source: "package p\n\n// X is one.\nvar X = 1\n", want: []string{"comment not allowed: // X is one."}},
 		{name: "doc comment in a test file", path: "p_test.go", source: "package p\n\n// X is one.\nvar X = 1\n", want: []string{"comment not allowed"}},
+		{name: "example output in a test file", path: "example_test.go", source: "package p\n\nfunc ExampleF() {\n\t// Output:\n\t// 42\n}\n"},
+		{name: "one-line example output in a test file", path: "example_test.go", source: "package p\n\nfunc ExampleF() {\n\t// Output: 42\n}\n"},
+		{name: "unordered example output in a test file", path: "example_test.go", source: "package p\n\nfunc ExampleF() {\n\t// Unordered output:\n\t// a\n}\n"},
+		{name: "example output outside a test file", path: "p.go", source: "package p\n\nfunc F() {\n\t// Output:\n\t// 42\n}\n", want: []string{"comment not allowed: // Output:", "comment not allowed: // 42"}},
 		{name: "doc comment in tools", path: "tools/codecheck/main.go", source: "package p\n\n// X is one.\nvar X = 1\n", want: []string{"comment not allowed"}},
 	}
 
