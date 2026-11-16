@@ -1,0 +1,9 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: godebugbar
+      POSTGRES_PASSWORD: godebugbar
+      POSTGRES_DB: godebugbar
+    ports:
+      - "5433:5432"

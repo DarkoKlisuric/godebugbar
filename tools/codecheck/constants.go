@@ -13,3 +13,5 @@ const (
 )
 
 var skippedDirs = map[string]bool{"vendor": true, "node_modules": true}
+
+var exampleOutputMarkers = []string{"Output:", "Unordered output:"}

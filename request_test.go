@@ -72,14 +72,14 @@ func TestSlogHandler(t *testing.T) {
 	logger := slog.New(godebugbar.NewSlogHandler(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	bar := godebugbar.New(godebugbar.WithEnabled(true))
 	handler := bar.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scoped := logger.With("crew", "alpha").WithGroup("job")
+		scoped := logger.With("group", "alpha").WithGroup("job")
 		scoped.InfoContext(r.Context(), "queued", "id", 7)
 		scoped.ErrorContext(r.Context(), "failed", "id", 8)
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	body := profileJSON(t, handler, "/jobs")
-	for _, want := range []string{"queued", "failed", "crew=alpha", "job.id=7", `"color":"red"`} {
+	for _, want := range []string{"queued", "failed", "group=alpha", "job.id=7", `"color":"red"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected %q in profile %s", want, body)
 		}

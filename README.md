@@ -7,7 +7,9 @@
 
 godebugbar is a debug toolbar and request profiler for Go web apps. It shows SQL queries with N+1 detection, logs, outgoing HTTP calls and a timeline for every request. Works with net/http, Gin, GORM, pgx and database/sql.
 
-![godebugbar profiler](docs/screenshot.png)
+![godebugbar finding an N+1 query in a Gin and GORM app](docs/demo.gif)
+
+Requires Go 1.25+. chi, Echo and other routers use the plain net/http middleware.
 
 For development only. Profiling is off by default.
 
@@ -29,6 +31,15 @@ go get github.com/DarkoKlisuric/godebugbar@latest
 ```
 
 Adapters for Gin, GORM, pgx and `database/sql` are separate modules. Add only the ones you use.
+
+## Try it
+
+```bash
+git clone https://github.com/DarkoKlisuric/godebugbar && cd godebugbar
+go run ./examples/basic
+```
+
+Open `http://localhost:8080`. More in [`examples`](examples): Gin + GORM and chi + pgx on PostgreSQL.
 
 ## Use
 

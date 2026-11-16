@@ -35,7 +35,7 @@ func TestRequestCollector(t *testing.T) {
 		{
 			name:        "captured body",
 			res:         contract.ResponseInfo{Status: http.StatusCreated},
-			body:        `{"name":"crew"}`,
+			body:        `{"name":"group"}`,
 			wantColor:   contract.ColorGreen,
 			wantWidgets: []string{"Request Body"},
 		},
