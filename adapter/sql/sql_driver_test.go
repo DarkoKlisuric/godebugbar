@@ -147,3 +147,72 @@ func TestSQLAdapterSkipsUnprofiledContext(t *testing.T) {
 		t.Fatalf("Ping: %v", err)
 	}
 }
+
+type fakeConnector struct{ fail bool }
+
+func (c *fakeConnector) Connect(context.Context) (driver.Conn, error) {
+	if c.fail {
+		return nil, errors.New("connect failed")
+	}
+	return &contextConn{}, nil
+}
+
+func (c *fakeConnector) Driver() driver.Driver { return &fakeDriver{contextAware: true} }
+
+type failingDriver struct{}
+
+func (d *failingDriver) Open(string) (driver.Conn, error) { return nil, errors.New("open failed") }
+
+func TestWrapConnectorRecordsQueries(t *testing.T) {
+	t.Parallel()
+
+	db := sql.OpenDB(sqladapter.WrapConnector(&fakeConnector{}))
+	t.Cleanup(func() { _ = db.Close() })
+	if _, ok := db.Driver().(*sqladapter.SQLDriver); !ok {
+		t.Fatalf("Driver() = %T, want *sqladapter.SQLDriver", db.Driver())
+	}
+
+	bar := godebugbar.New(godebugbar.WithEnabled(true), sqladapter.Attach())
+	handler := bar.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = db.ExecContext(r.Context(), "DELETE FROM connector_marker")
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/_debugbar/api/profiles/latest", nil))
+
+	if !strings.Contains(rec.Body.String(), "connector_marker") {
+		t.Errorf("expected the query in %s", rec.Body.String())
+	}
+}
+
+func TestSQLDriverErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "open with an unknown driver", run: func() error {
+			_, err := sqladapter.Open("godebugbar-unknown", "dsn")
+			return err
+		}},
+		{name: "wrapped driver fails to open", run: func() error {
+			_, err := sqladapter.Wrap(&failingDriver{}).Open("dsn")
+			return err
+		}},
+		{name: "wrapped connector fails to connect", run: func() error {
+			_, err := sqladapter.WrapConnector(&fakeConnector{fail: true}).Connect(t.Context())
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := tt.run(); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
