@@ -2,6 +2,12 @@
 
 `adapter/sql` wraps any `database/sql` driver so that statements run with a profiled request's context are recorded.
 
+## Install
+
+```bash
+go get github.com/DarkoKlisuric/godebugbar/adapter/sql@latest
+```
+
 ## Usage
 
 ```go

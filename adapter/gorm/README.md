@@ -2,6 +2,12 @@
 
 `adapter/gorm` integrates `godebugbar` with `gorm.io/gorm`.
 
+## Install
+
+```bash
+go get github.com/DarkoKlisuric/godebugbar/adapter/gorm@latest
+```
+
 ## Usage
 
 Pass `gormadapter.Attach(db)` to `godebugbar.New`:

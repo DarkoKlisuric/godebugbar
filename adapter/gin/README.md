@@ -2,6 +2,12 @@
 
 `adapter/gin` integrates `godebugbar` with `github.com/gin-gonic/gin`.
 
+## Install
+
+```bash
+go get github.com/DarkoKlisuric/godebugbar/adapter/gin@latest
+```
+
 ## Usage
 
 Pass `ginadapter.Attach(engine)` to `godebugbar.New` **before registering routes**:
