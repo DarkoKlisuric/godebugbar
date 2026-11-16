@@ -33,7 +33,7 @@ linters:
     depguard:
       rules:
         core:
-          files: ["$all", "!**/adapter/**", "!**/tools/**", "!$test"]
+          files: ["$all", "!**/adapter/**", "!**/examples/**", "!**/tools/**", "!$test"]
           list-mode: strict
           allow:
             - $gostd

@@ -14,6 +14,7 @@ This is the code base of `godebugbar`, a web debug toolbar and request profiler 
 
 Each adapter is its own Go module (`github.com/DarkoKlisuric/godebugbar/adapter/<name>`), so the core module depends on the standard library only and users fetch just the adapters they use. The committed `go.work` builds every module against the local core. Adapters may import the core's `internal/` packages because they live under the same path. Adapter tests must not import other adapters. release-please releases all modules together with one version: the core is tagged `vX.Y.Z`, each adapter `adapter/<name>/vX.Y.Z`, and the release pull request raises the core version each adapter's `go.mod` requires (`// x-release-please-version`).
 - **Codecheck** (`tools/codecheck/`) - AST linter enforcing project code conventions
+- **Examples** (`examples/`) - Runnable apps (`basic`, `gin-gorm`, `chi-pgx`) in their own module, which is in `go.work` and `make` targets but is never released; `examples/docker-compose.yml` starts PostgreSQL on port 5433
 
 `Option` is `func(*engine.Engine)`: only packages inside this module can write options, which keeps adapters bound to the engine without a registry.
 
