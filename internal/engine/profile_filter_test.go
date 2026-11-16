@@ -14,7 +14,7 @@ func TestProfileFilter(t *testing.T) {
 	profile := engine.Profile{
 		ID: "abc123", Method: "GET", Path: "/v1/runs/7", Route: "/v1/runs/:id", Status: 500, DurationMs: 42,
 		Stats:   engine.ProfileStats{SlowQueries: 1, NPlusOne: 1},
-		Queries: []contextstate.QueryEntry{{SQL: "SELECT * FROM crew.members WHERE run_id = 7"}},
+		Queries: []contextstate.QueryEntry{{SQL: "SELECT * FROM group.members WHERE run_id = 7"}},
 		Errors:  []string{"timeout talking to llm"},
 	}
 
@@ -26,7 +26,7 @@ func TestProfileFilter(t *testing.T) {
 		{name: "empty filter", query: "", want: true},
 		{name: "path text", query: "q=runs", want: true},
 		{name: "route text", query: "q=:id", want: true},
-		{name: "sql text", query: "q=crew.members", want: true},
+		{name: "sql text", query: "q=group.members", want: true},
 		{name: "error text", query: "q=LLM", want: true},
 		{name: "id text", query: "q=abc1", want: true},
 		{name: "missing text", query: "q=billing", want: false},

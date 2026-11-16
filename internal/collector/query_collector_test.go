@@ -39,9 +39,9 @@ func TestQueryCollector(t *testing.T) {
 		{
 			name: "n plus one with different values",
 			queries: []contextstate.QueryEntry{
-				{SQL: "SELECT * FROM crews WHERE id = 1", Template: "SELECT * FROM crews WHERE id = $1"},
-				{SQL: "SELECT * FROM crews WHERE id = 2", Template: "SELECT * FROM crews WHERE id = $1"},
-				{SQL: "SELECT * FROM crews WHERE id = 3", Template: "SELECT * FROM crews WHERE id = $1"},
+				{SQL: "SELECT * FROM groups WHERE id = 1", Template: "SELECT * FROM groups WHERE id = $1"},
+				{SQL: "SELECT * FROM groups WHERE id = 2", Template: "SELECT * FROM groups WHERE id = $1"},
+				{SQL: "SELECT * FROM groups WHERE id = 3", Template: "SELECT * FROM groups WHERE id = $1"},
 			},
 			wantColor:  contract.ColorYellow,
 			wantStatus: []string{"N+1 (3×)", "N+1 (3×)", "N+1 (3×)"},
